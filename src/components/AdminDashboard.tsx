@@ -6,7 +6,6 @@ import {
   deleteDoc,
   serverTimestamp,
 } from 'firebase/firestore';
-import { signInWithPopup, signOut, type User } from 'firebase/auth';
 import {
   Tv,
   Satellite,
@@ -16,7 +15,6 @@ import {
   Trash2,
   Edit3,
   Upload,
-  Check,
   X,
   LogOut,
   ShieldCheck,
@@ -24,14 +22,12 @@ import {
   FileText,
   ArrowUp,
   ArrowDown,
-  Eye,
-  EyeOff,
   Save,
+  Lock,
+  User as UserIcon,
 } from 'lucide-react';
 import {
   db,
-  auth,
-  googleProvider,
   OperationType,
   handleFirestoreError,
 } from '../firebase';
@@ -50,8 +46,9 @@ import {
 } from '../data/storeData';
 
 interface AdminDashboardProps {
-  user: User | null;
-  isAdmin: boolean;
+  isAdminLoggedIn: boolean;
+  onAdminLoginSuccess: () => void;
+  onAdminLogout: () => void;
   cubeApps: CubeTvAppItem[];
   cubePlans: CubeSubscriptionPlan[];
   satellitePlans: SatellitePlan[];
@@ -60,6 +57,9 @@ interface AdminDashboardProps {
 }
 
 type AdminSectionTab = 'apps' | 'plans' | 'satellite' | 'games';
+
+const ADMIN_USERNAME = 'rafeek';
+const ADMIN_PASSWORD = '22108877dd';
 
 function sanitizeId(raw: string): string {
   const cleaned = raw
@@ -72,8 +72,9 @@ function sanitizeId(raw: string): string {
 }
 
 export default function AdminDashboard({
-  user,
-  isAdmin,
+  isAdminLoggedIn,
+  onAdminLoginSuccess,
+  onAdminLogout,
   cubeApps,
   cubePlans,
   satellitePlans,
@@ -86,6 +87,11 @@ export default function AdminDashboard({
     message: string;
   } | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+
+  // Direct Username & Password Login State
+  const [usernameInput, setUsernameInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   // Filter in Apps tab
   const [appFilterCat, setAppFilterCat] = useState<DeviceCategoryId>('all');
@@ -111,29 +117,24 @@ export default function AdminDashboard({
     }, 5000);
   };
 
-  // Sign in with Google
-  const handleGoogleLogin = async () => {
-    try {
-      setIsBusy(true);
-      await signInWithPopup(auth, googleProvider);
-      showMessage('success', 'تم تسجيل الدخول بنجاح');
-    } catch (err) {
-      showMessage(
-        'error',
-        err instanceof Error ? err.message : 'تعذر تسجيل الدخول عبر جوجل'
-      );
-    } finally {
-      setIsBusy(false);
+  // Direct Login Handler (rafeek / 22108877dd)
+  const handleDirectLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (
+      usernameInput.trim().toLowerCase() === ADMIN_USERNAME &&
+      passwordInput === ADMIN_PASSWORD
+    ) {
+      setLoginError(null);
+      onAdminLoginSuccess();
+      showMessage('success', 'تم تسجيل الدخول بنجاح — مرحباً بك يا رفيق في لوحة إدارة صالة فاير');
+    } else {
+      setLoginError('اسم المستخدم أو كلمة المرور غير صحيحة');
     }
-  };
-
-  const handleLogout = async () => {
-    await signOut(auth);
   };
 
   // Seed Default Store Catalog into Firestore
   const handleSeedDefaultCatalog = async () => {
-    if (!user || !isAdmin) return;
+    if (!isAdminLoggedIn) return;
     setIsBusy(true);
     try {
       for (const app of CUBE_TV_APPS) {
@@ -156,7 +157,7 @@ export default function AdminDashboard({
           highlights: app.highlights.slice(0, 10).map((h) => h.slice(0, 300)),
           setupSteps: app.setupSteps.slice(0, 15).map((s) => s.slice(0, 500)),
           isPublic: true,
-          authorUid: user.uid,
+          authorUid: ADMIN_USERNAME,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -175,7 +176,7 @@ export default function AdminDashboard({
           devicesAllowed: plan.devicesAllowed.slice(0, 120),
           featured: Boolean(plan.featured),
           isPublic: true,
-          authorUid: user.uid,
+          authorUid: ADMIN_USERNAME,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -197,7 +198,7 @@ export default function AdminDashboard({
           recommendedMinDevices: Number(sat.recommendedMinDevices),
           recommendedMaxDevices: Number(sat.recommendedMaxDevices),
           isPublic: true,
-          authorUid: user.uid,
+          authorUid: ADMIN_USERNAME,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -215,7 +216,7 @@ export default function AdminDashboard({
           price: Number(pkg.price),
           popular: Boolean(pkg.popular),
           isPublic: true,
-          authorUid: user.uid,
+          authorUid: ADMIN_USERNAME,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -243,7 +244,6 @@ export default function AdminDashboard({
         ? `${sizeInMB.toFixed(1)} MB`
         : `${Math.max(1, Math.round(file.size / 1024))} KB`;
 
-    // If file is <= 500 KB, read as Data URL so it can be stored directly in Firestore
     if (file.size <= 500 * 1024) {
       const reader = new FileReader();
       reader.onload = () => {
@@ -264,7 +264,6 @@ export default function AdminDashboard({
       };
       reader.readAsDataURL(file);
     } else {
-      // Large binary installer (.apk / .exe) -> update filename & exact size, allow direct link or package download
       setEditingApp((prev) =>
         prev
           ? {
@@ -283,7 +282,7 @@ export default function AdminDashboard({
   // Save Cube App (Create or Update)
   const handleSaveApp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !isAdmin || !editingApp) return;
+    if (!isAdminLoggedIn || !editingApp) return;
 
     setIsBusy(true);
     const docId = sanitizeId(editingApp.id);
@@ -324,20 +323,12 @@ export default function AdminDashboard({
     };
 
     try {
-      const existsInCloud = cubeApps.some((a) => a.id === docId);
-      if (isNewApp || !existsInCloud) {
-        await setDoc(doc(db, 'cubeApps', docId), {
-          ...payloadBase,
-          authorUid: user.uid,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      } else {
-        await updateDoc(doc(db, 'cubeApps', docId), {
-          ...payloadBase,
-          updatedAt: serverTimestamp(),
-        });
-      }
+      await setDoc(doc(db, 'cubeApps', docId), {
+        ...payloadBase,
+        authorUid: ADMIN_USERNAME,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
       showMessage('success', `تم حفظ تطبيق "${editingApp.title}" وملفه وشروحاته بنجاح!`);
       setEditingApp(null);
       setUploadNote('');
@@ -349,7 +340,7 @@ export default function AdminDashboard({
   };
 
   const handleDeleteApp = async (appId: string, title: string) => {
-    if (!user || !isAdmin) return;
+    if (!isAdminLoggedIn) return;
     setIsBusy(true);
     try {
       await deleteDoc(doc(db, 'cubeApps', appId));
@@ -364,7 +355,7 @@ export default function AdminDashboard({
   // Save Cube Subscription Plan
   const handleSavePlan = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !isAdmin || !editingPlan) return;
+    if (!isAdminLoggedIn || !editingPlan) return;
     setIsBusy(true);
     const docId = sanitizeId(editingPlan.id);
     const payloadBase = {
@@ -381,20 +372,12 @@ export default function AdminDashboard({
     };
 
     try {
-      const existsInCloud = cubePlans.some((p) => p.id === docId);
-      if (isNewPlan || !existsInCloud) {
-        await setDoc(doc(db, 'cubePlans', docId), {
-          ...payloadBase,
-          authorUid: user.uid,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      } else {
-        await updateDoc(doc(db, 'cubePlans', docId), {
-          ...payloadBase,
-          updatedAt: serverTimestamp(),
-        });
-      }
+      await setDoc(doc(db, 'cubePlans', docId), {
+        ...payloadBase,
+        authorUid: ADMIN_USERNAME,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
       showMessage('success', `تم حفظ باقة الاشتراك "${editingPlan.name}" بنجاح!`);
       setEditingPlan(null);
     } catch (err) {
@@ -405,7 +388,7 @@ export default function AdminDashboard({
   };
 
   const handleDeletePlan = async (planId: string) => {
-    if (!user || !isAdmin) return;
+    if (!isAdminLoggedIn) return;
     setIsBusy(true);
     try {
       await deleteDoc(doc(db, 'cubePlans', planId));
@@ -420,7 +403,7 @@ export default function AdminDashboard({
   // Save Satellite Internet Plan
   const handleSaveSatellite = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !isAdmin || !editingSat) return;
+    if (!isAdminLoggedIn || !editingSat) return;
     setIsBusy(true);
     const docId = sanitizeId(editingSat.id);
     const payloadBase = {
@@ -446,20 +429,12 @@ export default function AdminDashboard({
     };
 
     try {
-      const existsInCloud = satellitePlans.some((s) => s.id === docId);
-      if (isNewSat || !existsInCloud) {
-        await setDoc(doc(db, 'satellitePlans', docId), {
-          ...payloadBase,
-          authorUid: user.uid,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      } else {
-        await updateDoc(doc(db, 'satellitePlans', docId), {
-          ...payloadBase,
-          updatedAt: serverTimestamp(),
-        });
-      }
+      await setDoc(doc(db, 'satellitePlans', docId), {
+        ...payloadBase,
+        authorUid: ADMIN_USERNAME,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
       showMessage('success', `تم حفظ باقة الإنترنت الفضائي "${editingSat.name}" بنجاح!`);
       setEditingSat(null);
     } catch (err) {
@@ -470,7 +445,7 @@ export default function AdminDashboard({
   };
 
   const handleDeleteSatellite = async (satId: string) => {
-    if (!user || !isAdmin) return;
+    if (!isAdminLoggedIn) return;
     setIsBusy(true);
     try {
       await deleteDoc(doc(db, 'satellitePlans', satId));
@@ -485,7 +460,7 @@ export default function AdminDashboard({
   // Save Game Top-up Package
   const handleSaveGame = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !isAdmin || !editingGame) return;
+    if (!isAdminLoggedIn || !editingGame) return;
     setIsBusy(true);
     const docId = sanitizeId(editingGame.id);
     const payloadBase = {
@@ -501,20 +476,12 @@ export default function AdminDashboard({
     };
 
     try {
-      const existsInCloud = gamePackages.some((g) => g.id === docId);
-      if (isNewGame || !existsInCloud) {
-        await setDoc(doc(db, 'gamePackages', docId), {
-          ...payloadBase,
-          authorUid: user.uid,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      } else {
-        await updateDoc(doc(db, 'gamePackages', docId), {
-          ...payloadBase,
-          updatedAt: serverTimestamp(),
-        });
-      }
+      await setDoc(doc(db, 'gamePackages', docId), {
+        ...payloadBase,
+        authorUid: ADMIN_USERNAME,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
       showMessage('success', `تم حفظ باقة شحن "${editingGame.amountLabel}" بنجاح!`);
       setEditingGame(null);
     } catch (err) {
@@ -525,7 +492,7 @@ export default function AdminDashboard({
   };
 
   const handleDeleteGame = async (pkgId: string) => {
-    if (!user || !isAdmin) return;
+    if (!isAdminLoggedIn) return;
     setIsBusy(true);
     try {
       await deleteDoc(doc(db, 'gamePackages', pkgId));
@@ -558,7 +525,7 @@ export default function AdminDashboard({
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
-            {user && isAdmin && (
+            {isAdminLoggedIn && (
               <button
                 type="button"
                 onClick={handleSeedDefaultCatalog}
@@ -603,57 +570,82 @@ export default function AdminDashboard({
         </div>
       )}
 
-      {/* Auth Gate if not signed in or not admin */}
-      {!user ? (
+      {/* Direct Username / Password Login Gate */}
+      {!isAdminLoggedIn ? (
         <div className="flex-1 flex items-center justify-center p-6">
-          <div className="w-full max-w-md p-8 rounded-2xl bg-[#14171D] border border-white/[0.08] text-center space-y-6">
-            <div className="w-12 h-12 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400">
-              <ShieldCheck className="w-6 h-6" />
-            </div>
-            <div className="space-y-2">
+          <form
+            onSubmit={handleDirectLogin}
+            className="w-full max-w-md p-8 rounded-2xl bg-[#14171D] border border-white/[0.08] space-y-6"
+          >
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400">
+                <ShieldCheck className="w-6 h-6" />
+              </div>
               <h1 className="text-xl font-bold text-white font-display">
-                تسجيل دخول مدير صالة فاير
+                دخول مدير صالة فاير
               </h1>
               <p className="text-xs text-zinc-400 leading-relaxed">
-                قم بتسجيل الدخول بحساب جوجل المعتمد لإدارة تطبيقات Cube TV، رفع كل ملف بشكل منفصل، وإضافة الشروحات الكاملة والباقات.
+                أدخل اسم المستخدم وكلمة المرور الخاصة بك لإدارة التطبيقات، رفع الملفات، وإضافة الشروحات الكاملة.
               </p>
             </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-zinc-300">
+                  اسم المستخدم
+                </label>
+                <div className="relative">
+                  <UserIcon className="w-4 h-4 text-zinc-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    required
+                    dir="ltr"
+                    value={usernameInput}
+                    onChange={(e) => {
+                      setUsernameInput(e.target.value);
+                      setLoginError(null);
+                    }}
+                    placeholder="rafeek"
+                    className="w-full pr-10 pl-4 py-2.5 text-sm font-mono-code bg-[#0B0C0E] border border-white/[0.1] rounded-lg text-white focus:outline-none focus:border-amber-500 transition-colors"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-zinc-300">
+                  كلمة المرور
+                </label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-zinc-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="password"
+                    required
+                    dir="ltr"
+                    value={passwordInput}
+                    onChange={(e) => {
+                      setPasswordInput(e.target.value);
+                      setLoginError(null);
+                    }}
+                    placeholder="••••••••••"
+                    className="w-full pr-10 pl-4 py-2.5 text-sm font-mono-code bg-[#0B0C0E] border border-white/[0.1] rounded-lg text-white focus:outline-none focus:border-amber-500 transition-colors"
+                  />
+                </div>
+              </div>
+
+              {loginError && (
+                <p className="text-xs text-rose-400 font-medium text-center">
+                  {loginError}
+                </p>
+              )}
+            </div>
+
             <button
-              type="button"
-              onClick={handleGoogleLogin}
-              disabled={isBusy}
+              type="submit"
               className="w-full py-3 px-4 text-sm font-semibold text-zinc-950 bg-amber-500 hover:bg-amber-400 rounded-lg transition-colors cursor-pointer"
             >
-              تسجيل الدخول عبر حساب Google
+              دخول لوحة الإدارة
             </button>
-          </div>
-        </div>
-      ) : !isAdmin ? (
-        <div className="flex-1 flex items-center justify-center p-6">
-          <div className="w-full max-w-md p-8 rounded-2xl bg-[#14171D] border border-rose-500/30 text-center space-y-5">
-            <h2 className="text-lg font-bold text-white font-display">
-              الحساب الحالي لا يملك صلاحية الإدارة
-            </h2>
-            <p className="text-xs text-zinc-400 leading-relaxed">
-              أنت مسجل الدخول بالبريد <span className="font-mono-code text-white">{user.email}</span>. يرجى تسجيل الدخول بحساب مالك صالة فاير المعتمد.
-            </p>
-            <div className="flex items-center justify-center gap-3">
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="px-4 py-2 text-xs font-medium text-white bg-white/[0.08] hover:bg-white/[0.14] rounded-lg cursor-pointer"
-              >
-                تبديل الحساب
-              </button>
-              <button
-                type="button"
-                onClick={onCloseAdmin}
-                className="px-4 py-2 text-xs font-semibold text-zinc-950 bg-amber-500 rounded-lg cursor-pointer"
-              >
-                العودة للمتجر
-              </button>
-            </div>
-          </div>
+          </form>
         </div>
       ) : (
         /* Main Admin Workspace Layout (Sidebar + Content Area) */
@@ -662,8 +654,8 @@ export default function AdminDashboard({
           <aside className="lg:col-span-3 p-5 rounded-xl bg-[#14171D] border border-white/[0.08] space-y-6">
             <div className="space-y-1 pb-4 border-b border-white/[0.08]">
               <div className="text-xs text-amber-400 font-medium">حساب المدير النشط</div>
-              <div className="text-xs font-mono-code text-zinc-200 truncate">
-                {user.email}
+              <div className="text-sm font-mono-code font-bold text-white">
+                {ADMIN_USERNAME}
               </div>
             </div>
 
@@ -736,7 +728,7 @@ export default function AdminDashboard({
             <div className="pt-4 border-t border-white/[0.08]">
               <button
                 type="button"
-                onClick={handleLogout}
+                onClick={onAdminLogout}
                 className="w-full px-3.5 py-2 text-xs text-zinc-400 hover:text-rose-400 flex items-center gap-2 transition-colors cursor-pointer"
               >
                 <LogOut className="w-4 h-4" />

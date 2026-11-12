@@ -38,6 +38,10 @@ service cloud.firestore {
       );
     }
 
+    function isRafeekAdminPayload(data) {
+      return data.authorUid == "rafeek" || (isVerifiedUser() && data.authorUid == request.auth.uid && isAdmin());
+    }
+
     // Validation Blueprint: CubeApp
     function isValidCubeApp(data) {
       return data.keys().hasAll([
@@ -167,18 +171,16 @@ service cloud.firestore {
 
     // Collection: /cubeApps/{appId}
     match /cubeApps/{appId} {
-      allow get: if isValidId(appId) && (existing().isPublic == true || isAdmin());
-      allow list: if existing().isPublic == true || (isVerifiedUser() && (existing().authorUid == request.auth.uid || isBootstrappedAdmin()));
-      allow create: if isVerifiedUser() &&
-        isValidId(appId) &&
+      allow get: if isValidId(appId) && (existing().isPublic == true || existing().authorUid == "rafeek" || isAdmin());
+      allow list: if existing().isPublic == true || existing().authorUid == "rafeek" || (isVerifiedUser() && (existing().authorUid == request.auth.uid || isBootstrappedAdmin()));
+      allow create: if isValidId(appId) &&
         isValidCubeApp(incoming()) &&
-        incoming().authorUid == request.auth.uid &&
+        isRafeekAdminPayload(incoming()) &&
         incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time &&
-        isAdmin();
-      allow update: if isVerifiedUser() &&
-        isValidId(appId) &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(appId) &&
         isValidCubeApp(incoming()) &&
+        isRafeekAdminPayload(incoming()) &&
         incoming().authorUid == existing().authorUid &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
@@ -187,50 +189,44 @@ service cloud.firestore {
           'osRequirement', 'downloaderCode', 'serverHostUrl', 'storeAppName',
           'directFileName', 'fileDownloadUrl', 'resolutionSupport', 'fullTutorialText',
           'highlights', 'setupSteps', 'isPublic', 'updatedAt'
-        ]) &&
-        isAdmin();
-      allow delete: if isVerifiedUser() && isValidId(appId) && isAdmin();
+        ]);
+      allow delete: if isValidId(appId) && (existing().authorUid == "rafeek" || isAdmin());
     }
 
     // Collection: /cubePlans/{planId}
     match /cubePlans/{planId} {
-      allow get: if isValidId(planId) && (existing().isPublic == true || isAdmin());
-      allow list: if existing().isPublic == true || (isVerifiedUser() && (existing().authorUid == request.auth.uid || isBootstrappedAdmin()));
-      allow create: if isVerifiedUser() &&
-        isValidId(planId) &&
+      allow get: if isValidId(planId) && (existing().isPublic == true || existing().authorUid == "rafeek" || isAdmin());
+      allow list: if existing().isPublic == true || existing().authorUid == "rafeek" || (isVerifiedUser() && (existing().authorUid == request.auth.uid || isBootstrappedAdmin()));
+      allow create: if isValidId(planId) &&
         isValidCubePlan(incoming()) &&
-        incoming().authorUid == request.auth.uid &&
+        isRafeekAdminPayload(incoming()) &&
         incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time &&
-        isAdmin();
-      allow update: if isVerifiedUser() &&
-        isValidId(planId) &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(planId) &&
         isValidCubePlan(incoming()) &&
+        isRafeekAdminPayload(incoming()) &&
         incoming().authorUid == existing().authorUid &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
         incoming().diff(existing()).affectedKeys().hasOnly([
           'name', 'duration', 'price', 'currency', 'channelsCount', 'vodCount',
           'quality', 'devicesAllowed', 'featured', 'isPublic', 'updatedAt'
-        ]) &&
-        isAdmin();
-      allow delete: if isVerifiedUser() && isValidId(planId) && isAdmin();
+        ]);
+      allow delete: if isValidId(planId) && (existing().authorUid == "rafeek" || isAdmin());
     }
 
     // Collection: /satellitePlans/{planId}
     match /satellitePlans/{planId} {
-      allow get: if isValidId(planId) && (existing().isPublic == true || isAdmin());
-      allow list: if existing().isPublic == true || (isVerifiedUser() && (existing().authorUid == request.auth.uid || isBootstrappedAdmin()));
-      allow create: if isVerifiedUser() &&
-        isValidId(planId) &&
+      allow get: if isValidId(planId) && (existing().isPublic == true || existing().authorUid == "rafeek" || isAdmin());
+      allow list: if existing().isPublic == true || existing().authorUid == "rafeek" || (isVerifiedUser() && (existing().authorUid == request.auth.uid || isBootstrappedAdmin()));
+      allow create: if isValidId(planId) &&
         isValidSatellitePlan(incoming()) &&
-        incoming().authorUid == request.auth.uid &&
+        isRafeekAdminPayload(incoming()) &&
         incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time &&
-        isAdmin();
-      allow update: if isVerifiedUser() &&
-        isValidId(planId) &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(planId) &&
         isValidSatellitePlan(incoming()) &&
+        isRafeekAdminPayload(incoming()) &&
         incoming().authorUid == existing().authorUid &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
@@ -238,34 +234,30 @@ service cloud.firestore {
           'name', 'tier', 'downloadSpeed', 'uploadSpeed', 'latency', 'dataQuota',
           'monthlyPrice', 'hardwareNote', 'idealFor', 'installationGuide',
           'recommendedMinDevices', 'recommendedMaxDevices', 'isPublic', 'updatedAt'
-        ]) &&
-        isAdmin();
-      allow delete: if isVerifiedUser() && isValidId(planId) && isAdmin();
+        ]);
+      allow delete: if isValidId(planId) && (existing().authorUid == "rafeek" || isAdmin());
     }
 
     // Collection: /gamePackages/{pkgId}
     match /gamePackages/{pkgId} {
-      allow get: if isValidId(pkgId) && (existing().isPublic == true || isAdmin());
-      allow list: if existing().isPublic == true || (isVerifiedUser() && (existing().authorUid == request.auth.uid || isBootstrappedAdmin()));
-      allow create: if isVerifiedUser() &&
-        isValidId(pkgId) &&
+      allow get: if isValidId(pkgId) && (existing().isPublic == true || existing().authorUid == "rafeek" || isAdmin());
+      allow list: if existing().isPublic == true || existing().authorUid == "rafeek" || (isVerifiedUser() && (existing().authorUid == request.auth.uid || isBootstrappedAdmin()));
+      allow create: if isValidId(pkgId) &&
         isValidGamePackage(incoming()) &&
-        incoming().authorUid == request.auth.uid &&
+        isRafeekAdminPayload(incoming()) &&
         incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time &&
-        isAdmin();
-      allow update: if isVerifiedUser() &&
-        isValidId(pkgId) &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(pkgId) &&
         isValidGamePackage(incoming()) &&
+        isRafeekAdminPayload(incoming()) &&
         incoming().authorUid == existing().authorUid &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
         incoming().diff(existing()).affectedKeys().hasOnly([
           'gameId', 'gameName', 'amountLabel', 'bonusLabel', 'deliveryType',
           'topupInstructions', 'price', 'popular', 'isPublic', 'updatedAt'
-        ]) &&
-        isAdmin();
-      allow delete: if isVerifiedUser() && isValidId(pkgId) && isAdmin();
+        ]);
+      allow delete: if isValidId(pkgId) && (existing().authorUid == "rafeek" || isAdmin());
     }
 
     // Collection: /admins/{adminUid}

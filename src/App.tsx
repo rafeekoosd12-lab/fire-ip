@@ -9,10 +9,7 @@ import {
   query,
   where,
   onSnapshot,
-  doc,
-  getDoc,
 } from 'firebase/firestore';
-import { onAuthStateChanged, type User } from 'firebase/auth';
 import {
   Tv,
   Smartphone,
@@ -36,7 +33,6 @@ import {
 } from 'lucide-react';
 import {
   db,
-  auth,
   OperationType,
   handleFirestoreError,
 } from './firebase';
@@ -77,9 +73,14 @@ interface DownloadNotification {
 }
 
 export default function App() {
-  // Auth & Admin Mode state
-  const [user, setUser] = useState<User | null>(null);
-  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  // Direct Admin Session state (rafeek / 22108877dd)
+  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('fire_admin_session') === 'rafeek';
+    } catch {
+      return false;
+    }
+  });
   const [isAdminViewOpen, setIsAdminViewOpen] = useState<boolean>(false);
 
   // Live Firestore Catalog State (with default fallback)
@@ -134,30 +135,23 @@ export default function App() {
   const [satImgFailed, setSatImgFailed] = useState(false);
   const [gameImgFailed, setGameImgFailed] = useState(false);
 
-  // Listen to Firebase Auth state & check Admin privilege
-  useEffect(() => {
-    const unsubAuth = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      if (!currentUser) {
-        setIsAdmin(false);
-        return;
-      }
-      if (
-        currentUser.email === 'rafeekoosd12@gmail.com' &&
-        currentUser.emailVerified
-      ) {
-        setIsAdmin(true);
-        return;
-      }
-      try {
-        const adminSnap = await getDoc(doc(db, 'admins', currentUser.uid));
-        setIsAdmin(adminSnap.exists());
-      } catch {
-        setIsAdmin(false);
-      }
-    });
-    return () => unsubAuth();
-  }, []);
+  const handleAdminLoginSuccess = () => {
+    setIsAdminLoggedIn(true);
+    try {
+      localStorage.setItem('fire_admin_session', 'rafeek');
+    } catch {
+      // ignore storage errors
+    }
+  };
+
+  const handleAdminLogout = () => {
+    setIsAdminLoggedIn(false);
+    try {
+      localStorage.removeItem('fire_admin_session');
+    } catch {
+      // ignore storage errors
+    }
+  };
 
   // Listen to Public Storefront Collections in Firestore
   useEffect(() => {
@@ -552,8 +546,9 @@ export default function App() {
   if (isAdminViewOpen) {
     return (
       <AdminDashboard
-        user={user}
-        isAdmin={isAdmin}
+        isAdminLoggedIn={isAdminLoggedIn}
+        onAdminLoginSuccess={handleAdminLoginSuccess}
+        onAdminLogout={handleAdminLogout}
         cubeApps={activeCubeApps}
         cubePlans={activeCubePlans}
         satellitePlans={activeSatellitePlans}
