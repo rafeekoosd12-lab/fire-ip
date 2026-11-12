@@ -1,0 +1,285 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Default-Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitive Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == "rafeekoosd12@gmail.com";
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Validation Blueprint: CubeApp
+    function isValidCubeApp(data) {
+      return data.keys().hasAll([
+        'categoryId', 'categoryLabel', 'title', 'subtitle', 'version', 'size',
+        'osRequirement', 'downloaderCode', 'serverHostUrl', 'storeAppName',
+        'directFileName', 'fileDownloadUrl', 'resolutionSupport', 'fullTutorialText',
+        'highlights', 'setupSteps', 'isPublic', 'authorUid', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'categoryId', 'categoryLabel', 'title', 'subtitle', 'version', 'size',
+        'osRequirement', 'downloaderCode', 'serverHostUrl', 'storeAppName',
+        'directFileName', 'fileDownloadUrl', 'resolutionSupport', 'fullTutorialText',
+        'highlights', 'setupSteps', 'isPublic', 'authorUid', 'createdAt', 'updatedAt'
+      ]) &&
+      data.categoryId is string &&
+      data.categoryId in ['android-tv', 'android-mobile', 'iphone-ios', 'samsung-lg', 'windows-pc'] &&
+      data.categoryLabel is string && data.categoryLabel.size() >= 1 && data.categoryLabel.size() <= 120 &&
+      data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+      data.subtitle is string && data.subtitle.size() >= 1 && data.subtitle.size() <= 400 &&
+      data.version is string && data.version.size() >= 1 && data.version.size() <= 40 &&
+      data.size is string && data.size.size() >= 1 && data.size.size() <= 40 &&
+      data.osRequirement is string && data.osRequirement.size() >= 1 && data.osRequirement.size() <= 160 &&
+      data.downloaderCode is string && data.downloaderCode.size() <= 60 &&
+      data.serverHostUrl is string && data.serverHostUrl.size() <= 250 &&
+      data.storeAppName is string && data.storeAppName.size() <= 120 &&
+      data.directFileName is string && data.directFileName.size() >= 1 && data.directFileName.size() <= 200 &&
+      data.fileDownloadUrl is string && data.fileDownloadUrl.size() <= 750000 &&
+      data.resolutionSupport is string && data.resolutionSupport.size() >= 1 && data.resolutionSupport.size() <= 100 &&
+      data.fullTutorialText is string && data.fullTutorialText.size() <= 5000 &&
+      data.highlights is list && data.highlights.size() >= 1 && data.highlights.size() <= 10 &&
+      data.highlights[0] is string && data.highlights[0].size() <= 300 &&
+      data.setupSteps is list && data.setupSteps.size() >= 1 && data.setupSteps.size() <= 15 &&
+      data.setupSteps[0] is string && data.setupSteps[0].size() <= 500 &&
+      data.isPublic is bool &&
+      data.authorUid is string && data.authorUid.size() >= 1 && data.authorUid.size() <= 128 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: CubePlan
+    function isValidCubePlan(data) {
+      return data.keys().hasAll([
+        'name', 'duration', 'price', 'currency', 'channelsCount', 'vodCount',
+        'quality', 'devicesAllowed', 'featured', 'isPublic', 'authorUid', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'name', 'duration', 'price', 'currency', 'channelsCount', 'vodCount',
+        'quality', 'devicesAllowed', 'featured', 'isPublic', 'authorUid', 'createdAt', 'updatedAt'
+      ]) &&
+      data.name is string && data.name.size() >= 1 && data.name.size() <= 160 &&
+      data.duration is string && data.duration.size() >= 1 && data.duration.size() <= 80 &&
+      data.price is number && data.price >= 0 && data.price <= 10000 &&
+      data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 20 &&
+      data.channelsCount is string && data.channelsCount.size() >= 1 && data.channelsCount.size() <= 120 &&
+      data.vodCount is string && data.vodCount.size() >= 1 && data.vodCount.size() <= 120 &&
+      data.quality is string && data.quality.size() >= 1 && data.quality.size() <= 120 &&
+      data.devicesAllowed is string && data.devicesAllowed.size() >= 1 && data.devicesAllowed.size() <= 120 &&
+      data.featured is bool &&
+      data.isPublic is bool &&
+      data.authorUid is string && data.authorUid.size() >= 1 && data.authorUid.size() <= 128 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: SatellitePlan
+    function isValidSatellitePlan(data) {
+      return data.keys().hasAll([
+        'name', 'tier', 'downloadSpeed', 'uploadSpeed', 'latency', 'dataQuota',
+        'monthlyPrice', 'hardwareNote', 'idealFor', 'installationGuide',
+        'recommendedMinDevices', 'recommendedMaxDevices', 'isPublic', 'authorUid', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'name', 'tier', 'downloadSpeed', 'uploadSpeed', 'latency', 'dataQuota',
+        'monthlyPrice', 'hardwareNote', 'idealFor', 'installationGuide',
+        'recommendedMinDevices', 'recommendedMaxDevices', 'isPublic', 'authorUid', 'createdAt', 'updatedAt'
+      ]) &&
+      data.name is string && data.name.size() >= 1 && data.name.size() <= 160 &&
+      data.tier is string && data.tier.size() >= 1 && data.tier.size() <= 120 &&
+      data.downloadSpeed is string && data.downloadSpeed.size() >= 1 && data.downloadSpeed.size() <= 60 &&
+      data.uploadSpeed is string && data.uploadSpeed.size() >= 1 && data.uploadSpeed.size() <= 60 &&
+      data.latency is string && data.latency.size() >= 1 && data.latency.size() <= 60 &&
+      data.dataQuota is string && data.dataQuota.size() >= 1 && data.dataQuota.size() <= 160 &&
+      data.monthlyPrice is number && data.monthlyPrice >= 0 && data.monthlyPrice <= 50000 &&
+      data.hardwareNote is string && data.hardwareNote.size() >= 1 && data.hardwareNote.size() <= 300 &&
+      data.idealFor is string && data.idealFor.size() >= 1 && data.idealFor.size() <= 300 &&
+      data.installationGuide is string && data.installationGuide.size() <= 3000 &&
+      data.recommendedMinDevices is number && data.recommendedMinDevices >= 1 && data.recommendedMinDevices <= 500 &&
+      data.recommendedMaxDevices is number && data.recommendedMaxDevices >= 1 && data.recommendedMaxDevices <= 1000 &&
+      data.isPublic is bool &&
+      data.authorUid is string && data.authorUid.size() >= 1 && data.authorUid.size() <= 128 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: GamePackage
+    function isValidGamePackage(data) {
+      return data.keys().hasAll([
+        'gameId', 'gameName', 'amountLabel', 'bonusLabel', 'deliveryType',
+        'topupInstructions', 'price', 'popular', 'isPublic', 'authorUid', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'gameId', 'gameName', 'amountLabel', 'bonusLabel', 'deliveryType',
+        'topupInstructions', 'price', 'popular', 'isPublic', 'authorUid', 'createdAt', 'updatedAt'
+      ]) &&
+      data.gameId is string && data.gameId in ['jawaker', 'pubg', 'freefire', 'playstation'] &&
+      data.gameName is string && data.gameName.size() >= 1 && data.gameName.size() <= 120 &&
+      data.amountLabel is string && data.amountLabel.size() >= 1 && data.amountLabel.size() <= 160 &&
+      data.bonusLabel is string && data.bonusLabel.size() >= 1 && data.bonusLabel.size() <= 160 &&
+      data.deliveryType is string && data.deliveryType.size() >= 1 && data.deliveryType.size() <= 120 &&
+      data.topupInstructions is string && data.topupInstructions.size() <= 2000 &&
+      data.price is number && data.price >= 0 && data.price <= 10000 &&
+      data.popular is bool &&
+      data.isPublic is bool &&
+      data.authorUid is string && data.authorUid.size() >= 1 && data.authorUid.size() <= 128 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: AdminRecord
+    function isValidAdminRecord(data) {
+      return data.keys().hasAll(['email', 'addedByUid', 'createdAt']) &&
+      data.keys().hasOnly(['email', 'addedByUid', 'createdAt']) &&
+      data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+      data.addedByUid is string && data.addedByUid.size() >= 1 && data.addedByUid.size() <= 128 &&
+      data.createdAt is timestamp;
+    }
+
+    // Collection: /cubeApps/{appId}
+    match /cubeApps/{appId} {
+      allow get: if isValidId(appId) && (existing().isPublic == true || isAdmin());
+      allow list: if existing().isPublic == true || (isVerifiedUser() && (existing().authorUid == request.auth.uid || isBootstrappedAdmin()));
+      allow create: if isVerifiedUser() &&
+        isValidId(appId) &&
+        isValidCubeApp(incoming()) &&
+        incoming().authorUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isVerifiedUser() &&
+        isValidId(appId) &&
+        isValidCubeApp(incoming()) &&
+        incoming().authorUid == existing().authorUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'categoryId', 'categoryLabel', 'title', 'subtitle', 'version', 'size',
+          'osRequirement', 'downloaderCode', 'serverHostUrl', 'storeAppName',
+          'directFileName', 'fileDownloadUrl', 'resolutionSupport', 'fullTutorialText',
+          'highlights', 'setupSteps', 'isPublic', 'updatedAt'
+        ]) &&
+        isAdmin();
+      allow delete: if isVerifiedUser() && isValidId(appId) && isAdmin();
+    }
+
+    // Collection: /cubePlans/{planId}
+    match /cubePlans/{planId} {
+      allow get: if isValidId(planId) && (existing().isPublic == true || isAdmin());
+      allow list: if existing().isPublic == true || (isVerifiedUser() && (existing().authorUid == request.auth.uid || isBootstrappedAdmin()));
+      allow create: if isVerifiedUser() &&
+        isValidId(planId) &&
+        isValidCubePlan(incoming()) &&
+        incoming().authorUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isVerifiedUser() &&
+        isValidId(planId) &&
+        isValidCubePlan(incoming()) &&
+        incoming().authorUid == existing().authorUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'duration', 'price', 'currency', 'channelsCount', 'vodCount',
+          'quality', 'devicesAllowed', 'featured', 'isPublic', 'updatedAt'
+        ]) &&
+        isAdmin();
+      allow delete: if isVerifiedUser() && isValidId(planId) && isAdmin();
+    }
+
+    // Collection: /satellitePlans/{planId}
+    match /satellitePlans/{planId} {
+      allow get: if isValidId(planId) && (existing().isPublic == true || isAdmin());
+      allow list: if existing().isPublic == true || (isVerifiedUser() && (existing().authorUid == request.auth.uid || isBootstrappedAdmin()));
+      allow create: if isVerifiedUser() &&
+        isValidId(planId) &&
+        isValidSatellitePlan(incoming()) &&
+        incoming().authorUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isVerifiedUser() &&
+        isValidId(planId) &&
+        isValidSatellitePlan(incoming()) &&
+        incoming().authorUid == existing().authorUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'tier', 'downloadSpeed', 'uploadSpeed', 'latency', 'dataQuota',
+          'monthlyPrice', 'hardwareNote', 'idealFor', 'installationGuide',
+          'recommendedMinDevices', 'recommendedMaxDevices', 'isPublic', 'updatedAt'
+        ]) &&
+        isAdmin();
+      allow delete: if isVerifiedUser() && isValidId(planId) && isAdmin();
+    }
+
+    // Collection: /gamePackages/{pkgId}
+    match /gamePackages/{pkgId} {
+      allow get: if isValidId(pkgId) && (existing().isPublic == true || isAdmin());
+      allow list: if existing().isPublic == true || (isVerifiedUser() && (existing().authorUid == request.auth.uid || isBootstrappedAdmin()));
+      allow create: if isVerifiedUser() &&
+        isValidId(pkgId) &&
+        isValidGamePackage(incoming()) &&
+        incoming().authorUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isVerifiedUser() &&
+        isValidId(pkgId) &&
+        isValidGamePackage(incoming()) &&
+        incoming().authorUid == existing().authorUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'gameId', 'gameName', 'amountLabel', 'bonusLabel', 'deliveryType',
+          'topupInstructions', 'price', 'popular', 'isPublic', 'updatedAt'
+        ]) &&
+        isAdmin();
+      allow delete: if isVerifiedUser() && isValidId(pkgId) && isAdmin();
+    }
+
+    // Collection: /admins/{adminUid}
+    match /admins/{adminUid} {
+      allow get: if isVerifiedUser() && isValidId(adminUid) && (request.auth.uid == adminUid || isAdmin());
+      allow list: if isVerifiedUser() && (existing().addedByUid == request.auth.uid || isBootstrappedAdmin());
+      allow create: if isVerifiedUser() &&
+        isValidId(adminUid) &&
+        isValidAdminRecord(incoming()) &&
+        incoming().addedByUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        isAdmin();
+      allow update: if false;
+      allow delete: if isVerifiedUser() && isValidId(adminUid) && isAdmin();
+    }
+  }
+}

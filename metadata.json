@@ -1,0 +1,6 @@
+{
+  "name": "صالة فاير — تطبيقات Cube TV والإنترنت الفضائي وشحن الألعاب",
+  "description": "المنصة الرسمية لصالة فاير لتحميل تطبيقات Cube TV لجميع الشاشات والهواتف والكمبيوتر، خدمات الإنترنت الفضائي، وشحن الألعاب الفوري مثل جواكر وببجي.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

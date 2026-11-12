@@ -1,0 +1,394 @@
+{
+  "entities": {
+    "CubeApp": {
+      "title": "CubeApp",
+      "description": "Represents a Cube TV IPTV application package for a specific device platform with its uploaded file and full installation tutorial.",
+      "type": "object",
+      "properties": {
+        "categoryId": {
+          "type": "string",
+          "enum": ["android-tv", "android-mobile", "iphone-ios", "samsung-lg", "windows-pc"],
+          "description": "Target device platform category."
+        },
+        "categoryLabel": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Arabic display label for the device platform."
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "Application title."
+        },
+        "subtitle": {
+          "type": "string",
+          "maxLength": 400,
+          "description": "Short summary of the application."
+        },
+        "version": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "App version string."
+        },
+        "size": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "File size string (e.g. 38.4 MB)."
+        },
+        "osRequirement": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "Supported operating systems."
+        },
+        "downloaderCode": {
+          "type": "string",
+          "maxLength": 60,
+          "description": "Downloader quick code for Smart TVs and boxes."
+        },
+        "serverHostUrl": {
+          "type": "string",
+          "maxLength": 250,
+          "description": "Xtream Codes host URL or DNS server address."
+        },
+        "storeAppName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Official companion app name in App Store / Smart TV store."
+        },
+        "directFileName": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Uploaded file name (APK, EXE, PDF, or config)."
+        },
+        "fileDownloadUrl": {
+          "type": "string",
+          "maxLength": 750000,
+          "description": "Direct download URL or encoded file data URI uploaded from the admin panel."
+        },
+        "resolutionSupport": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Supported video resolution and codec details."
+        },
+        "fullTutorialText": {
+          "type": "string",
+          "maxLength": 5000,
+          "description": "Comprehensive explanation and troubleshooting guide added by the admin."
+        },
+        "highlights": {
+          "type": "array",
+          "description": "Key feature bullet points (up to 10 items)."
+        },
+        "setupSteps": {
+          "type": "array",
+          "description": "Step-by-step installation instructions (up to 15 items)."
+        },
+        "isPublic": {
+          "type": "boolean",
+          "description": "Whether the application is publicly visible on the storefront."
+        },
+        "authorUid": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "UID of the admin who created the item."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation server timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update server timestamp."
+        }
+      },
+      "required": [
+        "categoryId",
+        "categoryLabel",
+        "title",
+        "subtitle",
+        "version",
+        "size",
+        "osRequirement",
+        "downloaderCode",
+        "serverHostUrl",
+        "storeAppName",
+        "directFileName",
+        "fileDownloadUrl",
+        "resolutionSupport",
+        "fullTutorialText",
+        "highlights",
+        "setupSteps",
+        "isPublic",
+        "authorUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CubePlan": {
+      "title": "CubePlan",
+      "description": "Represents a Cube TV IPTV subscription plan.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "duration": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "price": {
+          "type": "number"
+        },
+        "currency": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "channelsCount": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "vodCount": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "quality": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "devicesAllowed": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "featured": {
+          "type": "boolean"
+        },
+        "isPublic": {
+          "type": "boolean"
+        },
+        "authorUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "name",
+        "duration",
+        "price",
+        "currency",
+        "channelsCount",
+        "vodCount",
+        "quality",
+        "devicesAllowed",
+        "featured",
+        "isPublic",
+        "authorUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SatellitePlan": {
+      "title": "SatellitePlan",
+      "description": "Represents a Satellite Internet service package and hardware specification.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "tier": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "downloadSpeed": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "uploadSpeed": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "latency": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "dataQuota": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "monthlyPrice": {
+          "type": "number"
+        },
+        "hardwareNote": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "idealFor": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "installationGuide": {
+          "type": "string",
+          "maxLength": 3000
+        },
+        "recommendedMinDevices": {
+          "type": "number"
+        },
+        "recommendedMaxDevices": {
+          "type": "number"
+        },
+        "isPublic": {
+          "type": "boolean"
+        },
+        "authorUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "name",
+        "tier",
+        "downloadSpeed",
+        "uploadSpeed",
+        "latency",
+        "dataQuota",
+        "monthlyPrice",
+        "hardwareNote",
+        "idealFor",
+        "installationGuide",
+        "recommendedMinDevices",
+        "recommendedMaxDevices",
+        "isPublic",
+        "authorUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "GamePackage": {
+      "title": "GamePackage",
+      "description": "Represents a game top-up package (Jawaker, PUBG, Free Fire, PlayStation).",
+      "type": "object",
+      "properties": {
+        "gameId": {
+          "type": "string",
+          "enum": ["jawaker", "pubg", "freefire", "playstation"]
+        },
+        "gameName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "amountLabel": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "bonusLabel": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "deliveryType": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "topupInstructions": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "price": {
+          "type": "number"
+        },
+        "popular": {
+          "type": "boolean"
+        },
+        "isPublic": {
+          "type": "boolean"
+        },
+        "authorUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "gameId",
+        "gameName",
+        "amountLabel",
+        "bonusLabel",
+        "deliveryType",
+        "topupInstructions",
+        "price",
+        "popular",
+        "isPublic",
+        "authorUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted admin role assignment document keyed by user UID.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "addedByUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["email", "addedByUid", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/cubeApps/{appId}": {
+      "schema": { "$ref": "#/entities/CubeApp" },
+      "description": "Stores Cube TV applications, uploaded files, and detailed setup tutorials per platform."
+    },
+    "/cubePlans/{planId}": {
+      "schema": { "$ref": "#/entities/CubePlan" },
+      "description": "Stores Cube TV IPTV subscription packages."
+    },
+    "/satellitePlans/{planId}": {
+      "schema": { "$ref": "#/entities/SatellitePlan" },
+      "description": "Stores Satellite Internet plans and installation guides."
+    },
+    "/gamePackages/{pkgId}": {
+      "schema": { "$ref": "#/entities/GamePackage" },
+      "description": "Stores Game Top-Up packages and instructions."
+    },
+    "/admins/{adminUid}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Stores verified administrator UIDs."
+    }
+  }
+}
