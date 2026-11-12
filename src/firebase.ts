@@ -1,9 +1,8 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
 
-// Standalone Firebase configuration provided by the store owner (fire-ip-store)
+// Standalone Firebase configuration provided by the store owner (fire-ip-store) for Firestore database
 export const firebaseConfig = {
   apiKey: 'AIzaSyBjVv-B0wdTuzKC1f7Vfb-x7SoucCKzJ-0',
   authDomain: 'fire-ip-store.firebaseapp.com',
@@ -15,7 +14,6 @@ export const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
-export const storage = getStorage(app);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 

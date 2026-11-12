@@ -1601,8 +1601,7 @@ export default function App() {
                 إدارة المتجر والسيرفر
               </h4>
               <p className="text-xs text-[#9BA3B0]">
-                مرتبط سحابياً بمشروع Firebase المستقل (fire-ip-store) لرفع وتنزيل ملفات APK
-                المباشرة.
+                قاعدة البيانات: Firebase Firestore • رفع وتنزيل ملفات APK المباشرة عبر مخزن Supabase Storage (files-ip).
               </p>
               <div className="pt-1">
                 <button

@@ -6,11 +6,9 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import {
-  ref,
-  uploadBytesResumable,
-  getDownloadURL,
-  type UploadTask,
-} from 'firebase/storage';
+  uploadFileToSupabaseStorage,
+  SUPABASE_BUCKET,
+} from '../supabase';
 import {
   Tv,
   Satellite,
@@ -35,7 +33,6 @@ import {
 } from 'lucide-react';
 import {
   db,
-  storage,
   OperationType,
   handleFirestoreError,
 } from '../firebase';
@@ -117,13 +114,13 @@ export default function AdminDashboard({
   const [editingApp, setEditingApp] = useState<CubeTvAppItem | null>(null);
   const [isNewApp, setIsNewApp] = useState(false);
 
-  // Firebase Storage Resumable Upload state
+  // Supabase Storage Resumable / Progress Upload state (bucket: files-ip)
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [uploadedBytesText, setUploadedBytesText] = useState<string>('');
   const [uploadSuccessMessage, setUploadSuccessMessage] = useState<string | null>(null);
   const [uploadErrorMessage, setUploadErrorMessage] = useState<string | null>(null);
-  const uploadTaskRef = useRef<UploadTask | null>(null);
+  const abortUploadRef = useRef<(() => void) | null>(null);
 
   const [editingPlan, setEditingPlan] = useState<CubeSubscriptionPlan | null>(null);
   const [isNewPlan, setIsNewPlan] = useState(false);
@@ -264,7 +261,7 @@ export default function AdminDashboard({
     }
   };
 
-  // Real Firebase Storage APK / File Upload with Progress Bar (%) and Auto-Save to Firestore
+  // Real Supabase Storage APK / File Upload to bucket `files-ip` with Progress Bar (%) and Auto-Save Public URL to Firestore
   const handleAppFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !editingApp) return;
@@ -290,123 +287,99 @@ export default function AdminDashboard({
     setUploadSuccessMessage(null);
     setUploadErrorMessage(null);
 
-    const storagePath = `apps/${appDocId}/${Date.now()}_${cleanFileName}`;
-    const storageRef = ref(storage, storagePath);
+    const objectPath = `${appDocId}/${Date.now()}_${cleanFileName}`;
 
-    const uploadTask = uploadBytesResumable(storageRef, file);
-    uploadTaskRef.current = uploadTask;
-
-    uploadTask.on(
-      'state_changed',
-      (snapshot) => {
-        const pct =
-          snapshot.totalBytes > 0
-            ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
-            : 0;
+    const abortFn = uploadFileToSupabaseStorage(objectPath, file, {
+      onProgress: (pct, loaded, total) => {
         setUploadProgress(pct);
-        setUploadedBytesText(
-          `${formatBytes(snapshot.bytesTransferred)} / ${formatBytes(
-            snapshot.totalBytes
-          )}`
-        );
+        setUploadedBytesText(`${formatBytes(loaded)} / ${formatBytes(total)}`);
       },
-      (error) => {
+      onError: (errorMsg) => {
         setIsUploadingFile(false);
-        uploadTaskRef.current = null;
-        console.error('Firebase Storage Upload Error:', error);
-        setUploadErrorMessage(
-          `تعذر رفع الملف إلى Firebase Storage (${error.code || error.message}). تأكد من تفعيل Storage في مشروع fire-ip-store والسماح بالرفع في Rules (allow read, write: if true;).`
+        abortUploadRef.current = null;
+        setUploadErrorMessage(errorMsg);
+      },
+      onSuccess: (publicUrl) => {
+        setIsUploadingFile(false);
+        setUploadProgress(100);
+        abortUploadRef.current = null;
+
+        // Update editingApp state with the real Supabase Storage Public URL
+        setEditingApp((prev) => {
+          if (!prev) return null;
+          const updated: CubeTvAppItem = {
+            ...prev,
+            directFileName: cleanFileName,
+            size: formattedSize.slice(0, 40),
+            fileDownloadUrl: publicUrl,
+          };
+
+          // Automatically persist the new Public URL to Firebase Firestore if the app has a title
+          if (updated.title.trim()) {
+            const cleanHighlights = updated.highlights
+              .map((h) => h.trim().slice(0, 300))
+              .filter(Boolean)
+              .slice(0, 10);
+            const cleanSteps = updated.setupSteps
+              .map((s) => s.trim().slice(0, 500))
+              .filter(Boolean)
+              .slice(0, 15);
+
+            setDoc(doc(db, 'cubeApps', appDocId), {
+              categoryId: updated.categoryId,
+              categoryLabel: (updated.categoryLabel.trim() || 'تطبيق Cube TV').slice(
+                0,
+                120
+              ),
+              title: updated.title.trim().slice(0, 160),
+              subtitle: (updated.subtitle.trim() || updated.title.trim()).slice(0, 400),
+              version: (updated.version.trim() || 'v1.0').slice(0, 40),
+              size: updated.size.slice(0, 40),
+              osRequirement: (
+                updated.osRequirement.trim() || 'Android / Smart TV'
+              ).slice(0, 160),
+              downloaderCode: (updated.downloaderCode || '').trim().slice(0, 60),
+              serverHostUrl: (updated.serverHostUrl || '').trim().slice(0, 250),
+              storeAppName: (updated.storeAppName || '').trim().slice(0, 120),
+              directFileName: cleanFileName.slice(0, 200),
+              fileDownloadUrl: publicUrl.slice(0, 750000),
+              resolutionSupport: (
+                updated.resolutionSupport.trim() || '4K UHD'
+              ).slice(0, 100),
+              fullTutorialText: (updated.fullTutorialText || '').trim().slice(0, 5000),
+              highlights:
+                cleanHighlights.length > 0
+                  ? cleanHighlights
+                  : ['بث مباشر بجودة 4K بدون تقطيع'],
+              setupSteps:
+                cleanSteps.length > 0
+                  ? cleanSteps
+                  : ['حمّل التطبيق وثبته على جهازك ثم أدخل كود التفعيل.'],
+              isPublic: Boolean(updated.isPublic),
+              authorUid: ADMIN_USERNAME,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            }).catch((err) => {
+              console.error('Auto-save to Firestore after Supabase upload error:', err);
+            });
+          }
+
+          return updated;
+        });
+
+        setUploadSuccessMessage(
+          `تم رفع الملف "${cleanFileName}" (${formattedSize}) بنجاح 100% إلى مخزن Supabase Storage (المجلد: ${SUPABASE_BUCKET}) وحفظ رابط التحميل العام (Public URL) في Firebase Firestore!`
         );
       },
-      async () => {
-        try {
-          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-          setIsUploadingFile(false);
-          setUploadProgress(100);
-          uploadTaskRef.current = null;
+    });
 
-          // Update editingApp state with the real Firebase Storage download URL
-          setEditingApp((prev) => {
-            if (!prev) return null;
-            const updated: CubeTvAppItem = {
-              ...prev,
-              directFileName: cleanFileName,
-              size: formattedSize.slice(0, 40),
-              fileDownloadUrl: downloadURL,
-            };
-
-            // If the app already has a title, automatically persist the new fileDownloadUrl to Firestore immediately
-            if (updated.title.trim()) {
-              const cleanHighlights = updated.highlights
-                .map((h) => h.trim().slice(0, 300))
-                .filter(Boolean)
-                .slice(0, 10);
-              const cleanSteps = updated.setupSteps
-                .map((s) => s.trim().slice(0, 500))
-                .filter(Boolean)
-                .slice(0, 15);
-
-              setDoc(doc(db, 'cubeApps', appDocId), {
-                categoryId: updated.categoryId,
-                categoryLabel: (updated.categoryLabel.trim() || 'تطبيق Cube TV').slice(
-                  0,
-                  120
-                ),
-                title: updated.title.trim().slice(0, 160),
-                subtitle: (updated.subtitle.trim() || updated.title.trim()).slice(0, 400),
-                version: (updated.version.trim() || 'v1.0').slice(0, 40),
-                size: updated.size.slice(0, 40),
-                osRequirement: (
-                  updated.osRequirement.trim() || 'Android / Smart TV'
-                ).slice(0, 160),
-                downloaderCode: (updated.downloaderCode || '').trim().slice(0, 60),
-                serverHostUrl: (updated.serverHostUrl || '').trim().slice(0, 250),
-                storeAppName: (updated.storeAppName || '').trim().slice(0, 120),
-                directFileName: cleanFileName.slice(0, 200),
-                fileDownloadUrl: downloadURL.slice(0, 750000),
-                resolutionSupport: (
-                  updated.resolutionSupport.trim() || '4K UHD'
-                ).slice(0, 100),
-                fullTutorialText: (updated.fullTutorialText || '').trim().slice(0, 5000),
-                highlights:
-                  cleanHighlights.length > 0
-                    ? cleanHighlights
-                    : ['بث مباشر بجودة 4K بدون تقطيع'],
-                setupSteps:
-                  cleanSteps.length > 0
-                    ? cleanSteps
-                    : ['حمّل التطبيق وثبته على جهازك ثم أدخل كود التفعيل.'],
-                isPublic: Boolean(updated.isPublic),
-                authorUid: ADMIN_USERNAME,
-                createdAt: serverTimestamp(),
-                updatedAt: serverTimestamp(),
-              }).catch((err) => {
-                console.error('Auto-save to Firestore after upload error:', err);
-              });
-            }
-
-            return updated;
-          });
-
-          setUploadSuccessMessage(
-            `تم رفع الملف "${cleanFileName}" (${formattedSize}) بنجاح 100% إلى Firebase Storage وحفظ رابط التحميل المباشر في قاعدة البيانات!`
-          );
-        } catch (urlErr) {
-          setIsUploadingFile(false);
-          setUploadErrorMessage(
-            urlErr instanceof Error
-              ? urlErr.message
-              : 'اكتمل الرفع ولكن تعذر جلب رابط التحميل المباشر.'
-          );
-        }
-      }
-    );
+    abortUploadRef.current = abortFn;
   };
 
   const handleCancelUpload = () => {
-    if (uploadTaskRef.current) {
-      uploadTaskRef.current.cancel();
-      uploadTaskRef.current = null;
+    if (abortUploadRef.current) {
+      abortUploadRef.current();
+      abortUploadRef.current = null;
       setIsUploadingFile(false);
       setUploadProgress(0);
     }
@@ -893,10 +866,10 @@ export default function AdminDashboard({
                 <div className="p-6 rounded-xl bg-[#14171D] border border-white/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="space-y-1">
                     <h2 className="text-xl font-bold text-white font-display">
-                      إدارة تطبيقات Cube TV ورفع ملفات الـ APK المباشرة
+                      إدارة تطبيقات Cube TV ورفع ملفات الـ APK المباشرة إلى Supabase
                     </h2>
                     <p className="text-xs text-zinc-400">
-                      ارفع ملف الـ APK أو الـ EXE الحقيقي مباشرة إلى Firebase Storage مع متابعة نسبة الرفع المئوية (%) وحفظ رابط التحميل المباشر في Firestore.
+                      ارفع ملف الـ APK أو الـ EXE الحقيقي مباشرة إلى مخزن Supabase Storage (المجلد: files-ip) مع متابعة نسبة الرفع المئوية (%) وحفظ رابط التحميل العام (Public URL) في Firebase Firestore.
                     </p>
                   </div>
                   <button
@@ -981,22 +954,22 @@ export default function AdminDashboard({
                       </button>
                     </div>
 
-                    {/* REAL FIREBASE STORAGE APK UPLOAD BOX WITH PROGRESS BAR (%) */}
+                    {/* REAL SUPABASE STORAGE APK UPLOAD BOX WITH PROGRESS BAR (%) */}
                     <div className="p-5 rounded-xl bg-[#0B0C0E] border border-amber-500/40 space-y-4">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="space-y-1">
                           <div className="text-sm font-bold text-amber-400 flex items-center gap-2">
                             <Upload className="w-4 h-4" />
                             <span>
-                              رفع ملف الـ APK / البرنامج الحقيقي إلى Firebase Storage
+                              رفع ملف الـ APK / البرنامج الحقيقي إلى Supabase Storage (المجلد: files-ip)
                             </span>
                           </div>
                           <p className="text-xs text-zinc-400">
-                            اختر ملف الـ APK أو الـ EXE من جهازك ليتم رفعه مباشرة إلى سحابة{' '}
+                            اختر ملف الـ APK أو الـ EXE من جهازك ليتم رفعه مباشرة إلى مخزن{' '}
                             <span className="font-mono-code text-zinc-200">
-                              fire-ip-store.firebasestorage.app
+                              Supabase Storage ({SUPABASE_BUCKET})
                             </span>{' '}
-                            وتوليد رابط التحميل المباشر للزوار.
+                            وحفظ رابط التحميل العام (Public URL) في Firebase Firestore.
                           </p>
                         </div>
 
@@ -1040,7 +1013,7 @@ export default function AdminDashboard({
                         <div className="p-4 rounded-xl bg-[#14171D] border border-amber-500/30 space-y-2.5">
                           <div className="flex items-center justify-between text-xs">
                             <span className="font-medium text-amber-400">
-                              جاري رفع الملف إلى Firebase Storage...
+                              جاري رفع الملف إلى مخزن Supabase Storage ({SUPABASE_BUCKET})...
                             </span>
                             <span className="font-mono-code font-bold text-white text-sm tabular-nums">
                               {uploadProgress}%
@@ -1110,7 +1083,7 @@ export default function AdminDashboard({
 
                         <div className="space-y-1.5">
                           <label className="block text-xs text-zinc-300">
-                            رابط التحميل المباشر للملف في Firebase Storage
+                            رابط التحميل العام (Public URL) في Supabase Storage (files-ip)
                           </label>
                           <input
                             type="text"
@@ -1122,7 +1095,7 @@ export default function AdminDashboard({
                                 fileDownloadUrl: e.target.value,
                               })
                             }
-                            placeholder="يتم تعبئته تلقائياً فور اكتمال رفع ملف الـ APK..."
+                            placeholder="يتم تعبئته تلقائياً فور اكتمال رفع ملف الـ APK إلى Supabase..."
                             className="w-full px-3 py-2 text-xs font-mono-code bg-[#14171D] border border-white/[0.1] rounded-lg text-emerald-400"
                           />
                         </div>
