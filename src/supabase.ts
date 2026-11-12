@@ -18,6 +18,31 @@ export interface SupabaseUploadCallbacks {
 }
 
 /**
+ * Ensures any Supabase Storage public URL includes the `?download=` query parameter
+ * so mobile and desktop browsers immediately download the APK/EXE file with the
+ * proper Content-Disposition header.
+ */
+export function buildDirectDownloadUrl(rawUrl: string | undefined, fileName: string): string {
+  const cleanName = (fileName || 'CubeTV.apk').trim();
+  const trimmedUrl = (rawUrl || '').trim();
+
+  if (trimmedUrl) {
+    if (
+      trimmedUrl.includes('/storage/v1/object/public/') &&
+      !trimmedUrl.includes('download=')
+    ) {
+      const separator = trimmedUrl.includes('?') ? '&' : '?';
+      return `${trimmedUrl}${separator}download=${encodeURIComponent(cleanName)}`;
+    }
+    return trimmedUrl;
+  }
+
+  // Fallback direct public URL in the `files-ip` bucket if a file was uploaded directly to the bucket root
+  const { data } = supabase.storage.from(SUPABASE_BUCKET).getPublicUrl(cleanName);
+  return `${data.publicUrl}?download=${encodeURIComponent(cleanName)}`;
+}
+
+/**
  * Uploads a file (APK, EXE, etc.) directly to Supabase Storage bucket `files-ip`
  * with real-time byte progress (%) via XMLHttpRequest and returns an abort function.
  */

@@ -52,6 +52,7 @@ import {
 } from './data/storeData';
 
 import { db } from './firebase';
+import { buildDirectDownloadUrl } from './supabase';
 import AdminDashboard from './components/AdminDashboard';
 
 import fireLogoImg from './assets/images/fire_store_logo_1794511805615.jpg';
@@ -126,8 +127,18 @@ export default function App() {
       (snap) => {
         const list: CubeTvAppItem[] = [];
         snap.forEach((docSnap) => {
-          const data = docSnap.data() as Omit<CubeTvAppItem, 'id'>;
-          list.push({ ...data, id: docSnap.id });
+          const raw = docSnap.data() as Record<string, unknown>;
+          const data = raw as unknown as Omit<CubeTvAppItem, 'id'>;
+          const resolvedUrl =
+            (typeof raw.fileDownloadUrl === 'string' && raw.fileDownloadUrl.trim()) ||
+            (typeof raw.downloadUrl === 'string' && raw.downloadUrl.trim()) ||
+            (typeof raw.fileUrl === 'string' && raw.fileUrl.trim()) ||
+            '';
+          list.push({
+            ...data,
+            id: docSnap.id,
+            fileDownloadUrl: resolvedUrl,
+          });
         });
         setCloudApps(list);
       },
@@ -319,45 +330,29 @@ export default function App() {
     }, 2200);
   };
 
-  // Direct APK / File Download Handler (Real Firebase Storage URL — never downloads a .txt file)
+  // Direct APK / File Download Handler (Downloads directly from Supabase Storage URL — never opens the guide modal)
   const handleDownloadApp = (app: CubeTvAppItem) => {
-    if (app.fileDownloadUrl && app.fileDownloadUrl.trim() !== '') {
-      setDownloadToast({
-        appName: app.title,
-        fileName: app.directFileName,
-        code: app.downloaderCode || undefined,
-        isDirectFile: true,
-      });
+    const directUrl = buildDirectDownloadUrl(app.fileDownloadUrl, app.directFileName);
 
-      const link = document.createElement('a');
-      link.href = app.fileDownloadUrl;
-      link.setAttribute('download', app.directFileName || 'CubeTV.apk');
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      setTimeout(() => {
-        setDownloadToast((prev) => (prev?.appName === app.title ? null : prev));
-      }, 5000);
-      return;
-    }
-
-    // If no real APK file URL has been uploaded yet in Admin Dashboard, open the setup guide modal
-    // and inform the user/admin (never generate a fake .txt file).
-    setSelectedAppGuide(app);
     setDownloadToast({
       appName: app.title,
-      fileName:
-        'لم يتم رفع ملف الـ APK لهذا التطبيق بعد — يمكنك رفعه من لوحة الإدارة أو التثبيت عبر كود Downloader',
+      fileName: app.directFileName || 'CubeTV.apk',
       code: app.downloaderCode || undefined,
-      isDirectFile: false,
+      isDirectFile: true,
     });
+
+    const link = document.createElement('a');
+    link.href = directUrl;
+    link.setAttribute('download', app.directFileName || 'CubeTV.apk');
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 
     setTimeout(() => {
       setDownloadToast((prev) => (prev?.appName === app.title ? null : prev));
-    }, 5500);
+    }, 5000);
   };
 
   const openOrderModal = (state: OrderModalState) => {
@@ -441,34 +436,34 @@ export default function App() {
         />
       </div>
 
-      {/* TOP BAR CONTRACT: Strictly 3 Distinct Component Groups with gap-8 */}
-      <header className="sticky top-0 z-40 border-b border-white/[0.08] bg-[#0B0C0E]/85 backdrop-blur-xl">
-        <div className="max-w-[1380px] mx-auto px-4 sm:px-8 h-20 flex items-center justify-between gap-8">
+      {/* TOP BAR CONTRACT: Strictly 3 Distinct Component Groups, optimized for Android mobile & desktop */}
+      <header className="sticky top-0 z-40 border-b border-white/[0.08] bg-[#0B0C0E]/90 backdrop-blur-xl">
+        <div className="max-w-[1380px] mx-auto px-3 sm:px-8 h-16 sm:h-20 flex items-center justify-between gap-2 sm:gap-8">
           {/* Group 1: Official Fire Lounge Brand Identity */}
           <button
             onClick={() => {
               setActiveNav('all');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className="flex items-center gap-3.5 text-right group focus:outline-none shrink-0 cursor-pointer"
+            className="flex items-center gap-2.5 sm:gap-3.5 text-right group focus:outline-none min-w-0 shrink-0 cursor-pointer"
           >
-            <div className="relative w-12 h-12 rounded-xl overflow-hidden border border-amber-500/40 shadow-lg shadow-amber-500/10 bg-[#14171D] shrink-0">
+            <div className="relative w-10 h-10 sm:w-12 sm:h-12 rounded-xl overflow-hidden border border-amber-500/40 shadow-lg shadow-amber-500/10 bg-[#14171D] shrink-0">
               <img
                 src={fireLogoImg}
                 alt="شعار صالة فاير"
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
               />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-display font-extrabold text-lg sm:text-xl tracking-tight text-white">
+            <div className="min-w-0">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2 leading-tight">
+                <span className="font-display font-extrabold text-base sm:text-xl tracking-tight text-white whitespace-nowrap">
                   صالة فاير
                 </span>
-                <span className="text-xs font-mono-code uppercase tracking-wider text-amber-400 font-semibold">
-                  FIRE LOUNGE
+                <span className="text-[10px] sm:text-xs font-mono-code uppercase tracking-wider text-amber-400 font-semibold whitespace-nowrap">
+                  FIRE PS
                 </span>
               </div>
-              <p className="text-xs text-[#9BA3B0] hidden sm:block">
+              <p className="text-xs text-[#9BA3B0] hidden sm:block truncate">
                 Cube TV • الإنترنت الفضائي • شحن الألعاب الفوري
               </p>
             </div>
@@ -534,14 +529,14 @@ export default function App() {
           </nav>
 
           {/* Group 3: Admin Switch & Trial Request CTA */}
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <button
               onClick={() => setActiveNav('admin')}
-              className="px-3.5 py-2.5 rounded-xl font-display font-bold text-xs sm:text-sm bg-[#14171D] hover:bg-[#1C2029] text-amber-400 border border-amber-500/30 transition-all flex items-center gap-2 cursor-pointer"
+              className="p-2.5 sm:px-3.5 sm:py-2.5 rounded-xl font-display font-bold text-xs sm:text-sm bg-[#14171D] hover:bg-[#1C2029] text-amber-400 border border-amber-500/30 transition-all flex items-center gap-2 cursor-pointer"
               title="لوحة الإدارة الشاملة ورفع ملفات APK والشروحات"
             >
-              <Settings className="w-4 h-4" />
-              <span>لوحة الإدارة</span>
+              <Settings className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">لوحة الإدارة</span>
             </button>
 
             <button
@@ -556,59 +551,59 @@ export default function App() {
                   metaLabel: 'تجربة مجانية قبل الاشتراك',
                 })
               }
-              className="px-4 py-2.5 rounded-xl bg-gradient-to-l from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-display font-bold text-xs sm:text-sm shadow-lg shadow-amber-500/20 transition-all flex items-center gap-2 cursor-pointer"
+              className="px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-gradient-to-l from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-display font-bold text-xs sm:text-sm shadow-lg shadow-amber-500/20 transition-all flex items-center gap-1.5 sm:gap-2 whitespace-nowrap cursor-pointer"
             >
-              <Flame className="w-4 h-4 fill-slate-950" />
+              <Flame className="w-4 h-4 fill-slate-950 shrink-0" />
               <span className="hidden sm:inline">طلب كود تجريبي</span>
-              <span className="sm:hidden">تجريبي</span>
+              <span className="sm:hidden">كود تجريبي</span>
             </button>
           </div>
         </div>
 
-        {/* Mobile Quick Navigation Bar */}
-        <div className="flex md:hidden items-center justify-around border-t border-white/[0.06] bg-[#14171D]/90 px-2 py-2">
+        {/* Mobile Quick Navigation Bar (Responsive & Non-Wrapping on Android Screens) */}
+        <div className="flex md:hidden items-center justify-between gap-1 overflow-x-auto border-t border-white/[0.06] bg-[#14171D]/95 px-2 py-2">
           <button
             onClick={() => scrollToSection('iptv-section', 'iptv')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold ${
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold whitespace-nowrap shrink-0 ${
               activeNav === 'iptv' ? 'bg-amber-500 text-slate-950' : 'text-[#9BA3B0]'
             }`}
           >
-            <Tv className="w-3.5 h-3.5" />
+            <Tv className="w-3.5 h-3.5 shrink-0" />
             <span>Cube TV</span>
           </button>
           <button
             onClick={() => scrollToSection('satellite-section', 'satellite')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold ${
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold whitespace-nowrap shrink-0 ${
               activeNav === 'satellite'
                 ? 'bg-amber-500 text-slate-950'
                 : 'text-[#9BA3B0]'
             }`}
           >
-            <Satellite className="w-3.5 h-3.5" />
+            <Satellite className="w-3.5 h-3.5 shrink-0" />
             <span>الفضائي</span>
           </button>
           <button
             onClick={() => scrollToSection('gaming-section', 'gaming')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold ${
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold whitespace-nowrap shrink-0 ${
               activeNav === 'gaming' ? 'bg-amber-500 text-slate-950' : 'text-[#9BA3B0]'
             }`}
           >
-            <Gamepad2 className="w-3.5 h-3.5" />
-            <span>شحن الألعاب</span>
+            <Gamepad2 className="w-3.5 h-3.5 shrink-0" />
+            <span>الألعاب</span>
           </button>
           <button
             type="button"
             onClick={() => setIsAboutModalOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-[#9BA3B0] hover:text-amber-400"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-[#9BA3B0] hover:text-amber-400 whitespace-nowrap shrink-0"
           >
-            <Info className="w-3.5 h-3.5 text-amber-400" />
+            <Info className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span>حول</span>
           </button>
           <button
             onClick={() => setActiveNav('admin')}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-amber-400"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-amber-400 whitespace-nowrap shrink-0"
           >
-            <Settings className="w-3.5 h-3.5" />
+            <Settings className="w-3.5 h-3.5 shrink-0" />
             <span>الإدارة</span>
           </button>
         </div>
@@ -1007,48 +1002,42 @@ export default function App() {
                   </div>
 
                   {/* Group 3: Primary Download Action + Full Setup Guide Button */}
-                  <div className="flex flex-wrap items-center gap-3 pt-1">
-                    {hasRealApkUrl ? (
-                      <a
-                        href={app.fileDownloadUrl}
-                        download={app.directFileName || 'CubeTV.apk'}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={() => {
-                          setDownloadToast({
-                            appName: app.title,
-                            fileName: app.directFileName,
-                            code: app.downloaderCode || undefined,
-                            isDirectFile: true,
-                          });
-                          setTimeout(() => {
-                            setDownloadToast((prev) =>
-                              prev?.appName === app.title ? null : prev
-                            );
-                          }, 5000);
-                        }}
-                        className="flex-1 min-w-[200px] py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-display font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-md shadow-amber-500/10 cursor-pointer"
-                      >
-                        <Download className="w-4 h-4" />
-                        <span>تحميل ملف APK المباشر ({app.size})</span>
-                      </a>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleDownloadApp(app)}
-                        className="flex-1 min-w-[200px] py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-display font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-md shadow-amber-500/10 cursor-pointer"
-                      >
-                        <Download className="w-4 h-4" />
-                        <span>تحميل ({app.directFileName})</span>
-                      </button>
-                    )}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1">
+                    <a
+                      href={buildDirectDownloadUrl(
+                        app.fileDownloadUrl,
+                        app.directFileName
+                      )}
+                      download={app.directFileName || 'CubeTV.apk'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => {
+                        setDownloadToast({
+                          appName: app.title,
+                          fileName: app.directFileName || 'CubeTV.apk',
+                          code: app.downloaderCode || undefined,
+                          isDirectFile: true,
+                        });
+                        setTimeout(() => {
+                          setDownloadToast((prev) =>
+                            prev?.appName === app.title ? null : prev
+                          );
+                        }, 5000);
+                      }}
+                      className="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-display font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 shadow-md shadow-amber-500/10 cursor-pointer text-center min-w-0"
+                    >
+                      <Download className="w-4 h-4 shrink-0" />
+                      <span className="truncate">
+                        تحميل ({app.directFileName})
+                      </span>
+                    </a>
 
                     <button
                       type="button"
                       onClick={() => setSelectedAppGuide(app)}
-                      className="py-3 px-4 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-white border border-white/[0.08] font-display font-semibold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer"
+                      className="py-3 px-4 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-white border border-white/[0.08] font-display font-semibold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer shrink-0"
                     >
-                      <BookOpen className="w-4 h-4 text-amber-400" />
+                      <BookOpen className="w-4 h-4 text-amber-400 shrink-0" />
                       <span>الشرح الكامل والتثبيت</span>
                     </button>
                   </div>
@@ -1652,65 +1641,67 @@ export default function App() {
       </footer>
 
       {/* =====================================================================
-          MODAL 1: STEP-BY-STEP INSTALLATION GUIDE & DIRECT APK DOWNLOAD
+          MODAL 1: STEP-BY-STEP INSTALLATION GUIDE & DOWNLOADER CODE
          ===================================================================== */}
       {selectedAppGuide && (
         <div
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
           onClick={() => setSelectedAppGuide(null)}
         >
           <div
-            className="w-full max-w-xl rounded-2xl bg-[#14171D] border border-white/[0.12] p-6 space-y-6 shadow-2xl max-h-[90vh] overflow-y-auto"
+            className="w-[calc(100vw-1.5rem)] sm:w-full max-w-xl mx-auto my-auto rounded-2xl bg-[#14171D] border border-white/[0.12] p-4 sm:p-6 space-y-5 shadow-2xl max-h-[88dvh] overflow-y-auto overflow-x-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-4 border-b border-white/[0.08] pb-4">
-              <div>
-                <span className="text-xs font-mono-code text-amber-400 uppercase">
+            <div className="flex items-start justify-between gap-3 border-b border-white/[0.08] pb-3.5">
+              <div className="min-w-0">
+                <span className="text-[11px] font-mono-code text-amber-400 uppercase block">
                   INSTALLATION & SETUP GUIDE
                 </span>
-                <h3 className="font-display font-bold text-xl text-white mt-0.5">
+                <h3 className="font-display font-bold text-base sm:text-xl text-white mt-0.5 break-words">
                   شرح تثبيت وتفعيل: {selectedAppGuide.title}
                 </h3>
               </div>
               <button
                 onClick={() => setSelectedAppGuide(null)}
-                className="p-2 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-[#9BA3B0] hover:text-white cursor-pointer"
+                className="p-2 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-[#9BA3B0] hover:text-white shrink-0 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {selectedAppGuide.setupSteps.map((step, index) => (
                 <div
                   key={index}
-                  className="flex items-start gap-3.5 p-3.5 rounded-xl bg-[#0B0C0E] border border-white/[0.06]"
+                  className="flex items-start gap-3 p-3 sm:p-3.5 rounded-xl bg-[#0B0C0E] border border-white/[0.06]"
                 >
                   <span className="w-6 h-6 rounded-lg bg-amber-500 text-slate-950 font-mono-code font-bold text-xs flex items-center justify-center shrink-0 mt-0.5 tabular-nums">
                     {index + 1}
                   </span>
-                  <p className="text-sm text-[#F4F6F8] leading-relaxed">{step}</p>
+                  <p className="text-xs sm:text-sm text-[#F4F6F8] leading-relaxed break-words min-w-0">
+                    {step}
+                  </p>
                 </div>
               ))}
             </div>
 
             {selectedAppGuide.fullTutorialText && (
-              <div className="rounded-xl bg-[#0B0C0E] border border-amber-500/25 p-4 space-y-2">
+              <div className="rounded-xl bg-[#0B0C0E] border border-amber-500/25 p-3.5 sm:p-4 space-y-2">
                 <div className="text-xs font-display font-bold text-amber-400 flex items-center gap-1.5">
-                  <BookOpen className="w-4 h-4" />
+                  <BookOpen className="w-4 h-4 shrink-0" />
                   <span>الشرح التفصيلي الكامل من إدارة صالة فاير:</span>
                 </div>
-                <p className="text-xs sm:text-sm text-[#9BA3B0] leading-relaxed whitespace-pre-line">
+                <p className="text-xs sm:text-sm text-[#9BA3B0] leading-relaxed whitespace-pre-line break-words">
                   {selectedAppGuide.fullTutorialText}
                 </p>
               </div>
             )}
 
             {selectedAppGuide.downloaderCode && (
-              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between">
-                <div>
+              <div className="p-3.5 sm:p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
                   <div className="text-xs text-amber-300">كود Downloader المباشر</div>
-                  <div className="font-mono-code font-bold text-lg text-white tabular-nums">
+                  <div className="font-mono-code font-bold text-base sm:text-lg text-white tabular-nums break-all">
                     {selectedAppGuide.downloaderCode}
                   </div>
                 </div>
@@ -1718,46 +1709,34 @@ export default function App() {
                   onClick={() =>
                     handleCopyText(selectedAppGuide.downloaderCode, 'modal-guide-code')
                   }
-                  className="px-4 py-2 rounded-lg bg-amber-500 text-slate-950 font-semibold text-xs cursor-pointer"
+                  className="px-4 py-2 rounded-lg bg-amber-500 text-slate-950 font-semibold text-xs shrink-0 cursor-pointer"
                 >
                   {copiedId === 'modal-guide-code' ? 'تم النسخ!' : 'نسخ الكود'}
                 </button>
               </div>
             )}
 
-            <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
-              {selectedAppGuide.fileDownloadUrl &&
-              selectedAppGuide.fileDownloadUrl.trim() !== '' ? (
-                <a
-                  href={selectedAppGuide.fileDownloadUrl}
-                  download={selectedAppGuide.directFileName || 'CubeTV.apk'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => setSelectedAppGuide(null)}
-                  className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-display font-bold text-sm cursor-pointer flex items-center gap-2"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>
-                    تنزيل الملف المرفوع ({selectedAppGuide.directFileName})
-                  </span>
-                </a>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedAppGuide(null);
-                    setActiveNav('admin');
-                  }}
-                  className="px-4 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500/25 text-xs font-semibold cursor-pointer flex items-center gap-2"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>رفع ملف الـ APK لهذا التطبيق من لوحة الإدارة</span>
-                </button>
-              )}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2.5 pt-2">
+              <a
+                href={buildDirectDownloadUrl(
+                  selectedAppGuide.fileDownloadUrl,
+                  selectedAppGuide.directFileName
+                )}
+                download={selectedAppGuide.directFileName || 'CubeTV.apk'}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setSelectedAppGuide(null)}
+                className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-display font-bold text-xs sm:text-sm cursor-pointer flex items-center justify-center gap-2 text-center min-w-0"
+              >
+                <Download className="w-4 h-4 shrink-0" />
+                <span className="truncate">
+                  تنزيل الملف ({selectedAppGuide.directFileName})
+                </span>
+              </a>
 
               <button
                 onClick={() => setSelectedAppGuide(null)}
-                className="px-4 py-2.5 rounded-xl bg-white/[0.06] text-white text-sm font-semibold cursor-pointer"
+                className="px-4 py-2.5 rounded-xl bg-white/[0.06] text-white text-xs sm:text-sm font-semibold cursor-pointer text-center"
               >
                 إغلاق
               </button>
@@ -1771,26 +1750,26 @@ export default function App() {
          ===================================================================== */}
       {orderModal && (
         <div
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
           onClick={() => setOrderModal(null)}
         >
           <div
-            className="w-full max-w-lg rounded-2xl bg-[#14171D] border border-white/[0.12] p-6 space-y-6 shadow-2xl"
+            className="w-[calc(100vw-1.5rem)] sm:w-full max-w-lg mx-auto my-auto rounded-2xl bg-[#14171D] border border-white/[0.12] p-4 sm:p-6 space-y-5 shadow-2xl max-h-[88dvh] overflow-y-auto overflow-x-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-4 border-b border-white/[0.08] pb-4">
-              <div>
-                <span className="text-xs font-mono-code text-amber-400 uppercase">
+            <div className="flex items-start justify-between gap-3 border-b border-white/[0.08] pb-3.5">
+              <div className="min-w-0">
+                <span className="text-[11px] font-mono-code text-amber-400 uppercase block">
                   FIRE LOUNGE INSTANT ORDER
                 </span>
-                <h3 className="font-display font-bold text-xl text-white mt-0.5">
+                <h3 className="font-display font-bold text-base sm:text-xl text-white mt-0.5 break-words">
                   {orderModal.title}
                 </h3>
-                <p className="text-xs text-[#9BA3B0] mt-1">{orderModal.subtitle}</p>
+                <p className="text-xs text-[#9BA3B0] mt-1 break-words">{orderModal.subtitle}</p>
               </div>
               <button
                 onClick={() => setOrderModal(null)}
-                className="p-2 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-[#9BA3B0] hover:text-white cursor-pointer"
+                className="p-2 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-[#9BA3B0] hover:text-white shrink-0 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1798,9 +1777,9 @@ export default function App() {
 
             {!orderSubmitted ? (
               <form onSubmit={handleConfirmOrder} className="space-y-4">
-                <div className="p-4 rounded-xl bg-[#0B0C0E] border border-white/[0.07] flex items-center justify-between">
+                <div className="p-3.5 sm:p-4 rounded-xl bg-[#0B0C0E] border border-white/[0.07] flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs text-[#9BA3B0]">التكلفة الإجمالية:</span>
-                  <div className="font-mono-code font-bold text-lg text-amber-400 tabular-nums">
+                  <div className="font-mono-code font-bold text-base sm:text-lg text-amber-400 tabular-nums">
                     {orderModal.price === 0
                       ? 'مجاناً (تجريبي 24 ساعة)'
                       : `${orderModal.price} ${orderModal.currency}`}
@@ -1818,7 +1797,7 @@ export default function App() {
                       value={modalPlayerId}
                       onChange={(e) => setModalPlayerId(e.target.value)}
                       placeholder={orderModal.playerIdPlaceholder || 'أدخل الـ ID بدقة'}
-                      className="w-full px-4 py-3 rounded-xl bg-[#0B0C0E] border border-white/[0.12] focus:border-amber-500 focus:outline-none text-white font-mono-code text-sm"
+                      className="w-full px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-xl bg-[#0B0C0E] border border-white/[0.12] focus:border-amber-500 focus:outline-none text-white font-mono-code text-sm"
                     />
                   </div>
                 )}
@@ -1833,7 +1812,7 @@ export default function App() {
                     value={customerName}
                     onChange={(e) => setCustomerName(e.target.value)}
                     placeholder="مثال: رفيق"
-                    className="w-full px-4 py-3 rounded-xl bg-[#0B0C0E] border border-white/[0.12] focus:border-amber-500 focus:outline-none text-white text-sm"
+                    className="w-full px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-xl bg-[#0B0C0E] border border-white/[0.12] focus:border-amber-500 focus:outline-none text-white text-sm"
                   />
                 </div>
 
@@ -1846,23 +1825,23 @@ export default function App() {
                     required
                     value={customerPhone}
                     onChange={(e) => setCustomerPhone(e.target.value)}
-                    placeholder="079XXXXXXX"
-                    className="w-full px-4 py-3 rounded-xl bg-[#0B0C0E] border border-white/[0.12] focus:border-amber-500 focus:outline-none text-white font-mono-code text-sm"
+                    placeholder="09XXXXXXXX"
+                    className="w-full px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-xl bg-[#0B0C0E] border border-white/[0.12] focus:border-amber-500 focus:outline-none text-white font-mono-code text-sm"
                   />
                 </div>
 
-                <div className="pt-2 flex items-center gap-3">
+                <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
                   <button
                     type="submit"
-                    className="flex-1 py-3.5 px-5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-display font-bold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    className="flex-1 py-3 sm:py-3.5 px-5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-display font-bold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    <Send className="w-4 h-4" />
+                    <Send className="w-4 h-4 shrink-0" />
                     <span>تأكيد وإصدار رقم الطلب</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setOrderModal(null)}
-                    className="py-3.5 px-4 rounded-xl bg-white/[0.06] text-white text-sm font-semibold cursor-pointer"
+                    className="py-3 sm:py-3.5 px-4 rounded-xl bg-white/[0.06] text-white text-sm font-semibold cursor-pointer"
                   >
                     إلغاء
                   </button>
@@ -1874,7 +1853,7 @@ export default function App() {
                   <CheckCircle2 className="w-8 h-8" />
                 </div>
                 <div className="space-y-1.5">
-                  <h4 className="font-display font-bold text-xl text-white">
+                  <h4 className="font-display font-bold text-lg sm:text-xl text-white">
                     تم تسجيل طلبك بنجاح لدى صالة فاير!
                   </h4>
                   <p className="text-xs sm:text-sm text-[#9BA3B0]">
@@ -1885,26 +1864,26 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="p-4 rounded-xl bg-[#0B0C0E] border border-white/[0.08] text-right text-xs space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-[#9BA3B0]">الخدمة:</span>
-                    <span className="text-white font-semibold">{orderModal.title}</span>
+                <div className="p-3.5 sm:p-4 rounded-xl bg-[#0B0C0E] border border-white/[0.08] text-right text-xs space-y-2">
+                  <div className="flex justify-between gap-2">
+                    <span className="text-[#9BA3B0] shrink-0">الخدمة:</span>
+                    <span className="text-white font-semibold break-words">{orderModal.title}</span>
                   </div>
                   {modalPlayerId && (
-                    <div className="flex justify-between">
-                      <span className="text-[#9BA3B0]">معرف اللاعب (ID):</span>
-                      <span className="font-mono-code text-amber-400 font-bold">
+                    <div className="flex justify-between gap-2">
+                      <span className="text-[#9BA3B0] shrink-0">معرف اللاعب (ID):</span>
+                      <span className="font-mono-code text-amber-400 font-bold break-all">
                         {modalPlayerId}
                       </span>
                     </div>
                   )}
-                  <div className="flex justify-between">
-                    <span className="text-[#9BA3B0]">العميل:</span>
-                    <span className="text-white">{customerName}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-[#9BA3B0] shrink-0">العميل:</span>
+                    <span className="text-white break-words">{customerName}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-[#9BA3B0]">رقم التواصل:</span>
-                    <span className="font-mono-code text-white">{customerPhone}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-[#9BA3B0] shrink-0">رقم التواصل:</span>
+                    <span className="font-mono-code text-white break-all">{customerPhone}</span>
                   </div>
                 </div>
 
@@ -1925,11 +1904,11 @@ export default function App() {
          ===================================================================== */}
       {isAboutModalOpen && (
         <div
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
           onClick={() => setIsAboutModalOpen(false)}
         >
           <div
-            className="w-full max-w-md rounded-3xl bg-[#14171D] border border-amber-500/35 p-6 sm:p-7 space-y-6 shadow-2xl relative overflow-hidden"
+            className="w-[calc(100vw-1.5rem)] sm:w-full max-w-md mx-auto my-auto rounded-2xl sm:rounded-3xl bg-[#14171D] border border-amber-500/35 p-4 sm:p-7 space-y-5 shadow-2xl relative overflow-x-hidden overflow-y-auto max-h-[88dvh]"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Subtle Top Ambient Orange Glow */}
@@ -1941,18 +1920,18 @@ export default function App() {
             />
 
             {/* Modal Header */}
-            <div className="relative z-10 flex items-start justify-between gap-4 border-b border-white/[0.08] pb-4">
-              <div className="flex items-center gap-3.5">
+            <div className="relative z-10 flex items-start justify-between gap-3 border-b border-white/[0.08] pb-3.5">
+              <div className="flex items-center gap-3 min-w-0">
                 <img
                   src={fireLogoImg}
                   alt="شعار صالة FIRE PS"
-                  className="w-14 h-14 rounded-2xl object-cover border border-amber-500/50 shadow-lg shadow-amber-500/15 shrink-0"
+                  className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl object-cover border border-amber-500/50 shadow-lg shadow-amber-500/15 shrink-0"
                 />
-                <div>
-                  <span className="text-xs font-mono-code uppercase tracking-wider text-amber-400 font-semibold block">
+                <div className="min-w-0">
+                  <span className="text-[11px] font-mono-code uppercase tracking-wider text-amber-400 font-semibold block">
                     ABOUT FIRE PS LOUNGE
                   </span>
-                  <h3 className="font-display font-extrabold text-xl text-white mt-0.5">
+                  <h3 className="font-display font-extrabold text-base sm:text-xl text-white mt-0.5 break-words">
                     بطاقة تعريف صالة FIRE PS
                   </h3>
                 </div>
@@ -1961,7 +1940,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setIsAboutModalOpen(false)}
-                className="p-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-[#9BA3B0] hover:text-white transition-colors cursor-pointer"
+                className="p-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-[#9BA3B0] hover:text-white transition-colors shrink-0 cursor-pointer"
                 aria-label="إغلاق"
               >
                 <X className="w-5 h-5" />
@@ -1969,40 +1948,40 @@ export default function App() {
             </div>
 
             {/* Identity Details Card */}
-            <div className="relative z-10 rounded-2xl bg-[#0B0C0E] border border-white/[0.08] p-5 space-y-4">
-              <div className="flex items-start gap-3.5 pb-3.5 border-b border-white/[0.06]">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-                  <Flame className="w-5 h-5" />
+            <div className="relative z-10 rounded-2xl bg-[#0B0C0E] border border-white/[0.08] p-4 sm:p-5 space-y-3.5">
+              <div className="flex items-start gap-3 pb-3 border-b border-white/[0.06]">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                  <Flame className="w-4 h-4 sm:w-5 sm:h-5" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div className="text-xs text-[#9BA3B0]">اسم المكان</div>
-                  <div className="font-display font-bold text-base sm:text-lg text-white mt-0.5">
+                  <div className="font-display font-bold text-base sm:text-lg text-white mt-0.5 break-words">
                     صالة FIRE PS
                   </div>
                 </div>
               </div>
 
-              <div className="flex items-start gap-3.5 pb-3.5 border-b border-white/[0.06]">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-                  <MapPin className="w-5 h-5" />
+              <div className="flex items-start gap-3 pb-3 border-b border-white/[0.06]">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                  <MapPin className="w-4 h-4 sm:w-5 sm:h-5" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div className="text-xs text-[#9BA3B0]">العنوان</div>
-                  <div className="font-display font-semibold text-sm sm:text-base text-white mt-0.5 leading-relaxed">
+                  <div className="font-display font-semibold text-sm sm:text-base text-white mt-0.5 leading-relaxed break-words">
                     حلب - العزيزية - مقابل حلويات أليا
                   </div>
                 </div>
               </div>
 
-              <div className="flex items-start gap-3.5">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-                  <Phone className="w-5 h-5" />
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                  <Phone className="w-4 h-4 sm:w-5 sm:h-5" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div className="text-xs text-[#9BA3B0]">رقم التواصل</div>
                   <div
                     dir="ltr"
-                    className="font-mono-code font-bold text-lg text-amber-400 tabular-nums mt-0.5 text-right"
+                    className="font-mono-code font-bold text-base sm:text-lg text-amber-400 tabular-nums mt-0.5 text-right"
                   >
                     0935200103
                   </div>
@@ -2011,12 +1990,12 @@ export default function App() {
             </div>
 
             {/* Interactive Contact Buttons */}
-            <div className="relative z-10 space-y-3 pt-1">
+            <div className="relative z-10 space-y-2.5 pt-1">
               <a
                 href="tel:+963935200103"
-                className="w-full py-3.5 px-5 rounded-xl bg-gradient-to-l from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-display font-bold text-sm sm:text-base shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2.5 cursor-pointer"
+                className="w-full py-3 sm:py-3.5 px-4 rounded-xl bg-gradient-to-l from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-display font-bold text-xs sm:text-base shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                <Phone className="w-4 h-4 fill-slate-950" />
+                <Phone className="w-4 h-4 fill-slate-950 shrink-0" />
                 <span>اتصال مباشر:</span>
                 <span dir="ltr" className="font-mono-code font-extrabold tabular-nums">
                   0935200103
@@ -2027,9 +2006,9 @@ export default function App() {
                 href="https://wa.me/963935200103"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full py-3.5 px-5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 font-display font-bold text-sm sm:text-base transition-all flex items-center justify-center gap-2.5 cursor-pointer"
+                className="w-full py-3 sm:py-3.5 px-4 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 font-display font-bold text-xs sm:text-base transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                <MessageCircle className="w-5 h-5 text-emerald-400" />
+                <MessageCircle className="w-5 h-5 text-emerald-400 shrink-0" />
                 <span>التواصل المباشر عبر واتساب</span>
               </a>
             </div>
@@ -2041,17 +2020,19 @@ export default function App() {
           FLOATING DOWNLOAD TOAST NOTIFICATION
          ===================================================================== */}
       {downloadToast && (
-        <div className="fixed bottom-5 left-5 z-50 max-w-sm rounded-2xl bg-[#14171D] border border-amber-500/50 p-4 shadow-2xl flex items-start gap-3.5">
-          <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center shrink-0">
-            <Download className="w-5 h-5" />
+        <div className="fixed bottom-4 inset-x-3 sm:inset-x-auto sm:left-5 z-50 sm:max-w-sm rounded-2xl bg-[#14171D] border border-amber-500/50 p-3.5 sm:p-4 shadow-2xl flex items-start gap-3">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center shrink-0">
+            <Download className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
-          <div className="text-xs space-y-1">
-            <div className="font-display font-bold text-white text-sm">
+          <div className="text-xs space-y-1 min-w-0">
+            <div className="font-display font-bold text-white text-xs sm:text-sm break-words">
               {downloadToast.isDirectFile
                 ? `جاري تنزيل الملف الرسمي المباشر: ${downloadToast.appName}`
                 : `${downloadToast.appName}`}
             </div>
-            <div className="font-mono-code text-amber-400">{downloadToast.fileName}</div>
+            <div className="font-mono-code text-amber-400 break-all">
+              {downloadToast.fileName}
+            </div>
             {downloadToast.code && (
               <div className="text-[#9BA3B0]">
                 كود Downloader السريع:{' '}
