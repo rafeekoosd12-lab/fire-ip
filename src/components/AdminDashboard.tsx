@@ -1,11 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   doc,
   setDoc,
-  updateDoc,
   deleteDoc,
   serverTimestamp,
 } from 'firebase/firestore';
+import {
+  ref,
+  uploadBytesResumable,
+  getDownloadURL,
+  type UploadTask,
+} from 'firebase/storage';
 import {
   Tv,
   Satellite,
@@ -15,6 +20,8 @@ import {
   Trash2,
   Edit3,
   Upload,
+  CheckCircle2,
+  AlertCircle,
   X,
   LogOut,
   ShieldCheck,
@@ -28,6 +35,7 @@ import {
 } from 'lucide-react';
 import {
   db,
+  storage,
   OperationType,
   handleFirestoreError,
 } from '../firebase';
@@ -71,6 +79,15 @@ function sanitizeId(raw: string): string {
   return cleaned || `item-${Date.now()}`;
 }
 
+function formatBytes(bytes: number): string {
+  const mb = bytes / (1024 * 1024);
+  if (mb >= 1) {
+    return `${mb.toFixed(1)} MB`;
+  }
+  const kb = Math.max(1, Math.round(bytes / 1024));
+  return `${kb} KB`;
+}
+
 export default function AdminDashboard({
   isAdminLoggedIn,
   onAdminLoginSuccess,
@@ -99,7 +116,14 @@ export default function AdminDashboard({
   // Editing states
   const [editingApp, setEditingApp] = useState<CubeTvAppItem | null>(null);
   const [isNewApp, setIsNewApp] = useState(false);
-  const [uploadNote, setUploadNote] = useState<string>('');
+
+  // Firebase Storage Resumable Upload state
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [uploadedBytesText, setUploadedBytesText] = useState<string>('');
+  const [uploadSuccessMessage, setUploadSuccessMessage] = useState<string | null>(null);
+  const [uploadErrorMessage, setUploadErrorMessage] = useState<string | null>(null);
+  const uploadTaskRef = useRef<UploadTask | null>(null);
 
   const [editingPlan, setEditingPlan] = useState<CubeSubscriptionPlan | null>(null);
   const [isNewPlan, setIsNewPlan] = useState(false);
@@ -114,7 +138,7 @@ export default function AdminDashboard({
     setStatusBanner({ type, message });
     setTimeout(() => {
       setStatusBanner((prev) => (prev?.message === message ? null : prev));
-    }, 5000);
+    }, 6000);
   };
 
   // Direct Login Handler (rafeek / 22108877dd)
@@ -126,7 +150,10 @@ export default function AdminDashboard({
     ) {
       setLoginError(null);
       onAdminLoginSuccess();
-      showMessage('success', 'تم تسجيل الدخول بنجاح — مرحباً بك يا رفيق في لوحة إدارة صالة فاير');
+      showMessage(
+        'success',
+        'تم تسجيل الدخول بنجاح — مرحباً بك يا رفيق في لوحة إدارة صالة فاير (fire-ip-store)'
+      );
     } else {
       setLoginError('اسم المستخدم أو كلمة المرور غير صحيحة');
     }
@@ -139,19 +166,23 @@ export default function AdminDashboard({
     try {
       for (const app of CUBE_TV_APPS) {
         const docId = sanitizeId(app.id);
+        const existingApp = cubeApps.find((a) => a.id === docId);
         await setDoc(doc(db, 'cubeApps', docId), {
           categoryId: app.categoryId,
           categoryLabel: app.categoryLabel.slice(0, 120),
           title: app.title.slice(0, 160),
           subtitle: app.subtitle.slice(0, 400),
           version: app.version.slice(0, 40),
-          size: app.size.slice(0, 40),
+          size: (existingApp?.size || app.size).slice(0, 40),
           osRequirement: app.osRequirement.slice(0, 160),
           downloaderCode: (app.downloaderCode || '').slice(0, 60),
           serverHostUrl: (app.serverHostUrl || '').slice(0, 250),
           storeAppName: (app.storeAppName || '').slice(0, 120),
-          directFileName: app.directFileName.slice(0, 200),
-          fileDownloadUrl: (app.fileDownloadUrl || '').slice(0, 750000),
+          directFileName: (existingApp?.directFileName || app.directFileName).slice(0, 200),
+          fileDownloadUrl: (existingApp?.fileDownloadUrl || app.fileDownloadUrl || '').slice(
+            0,
+            750000
+          ),
           resolutionSupport: app.resolutionSupport.slice(0, 100),
           fullTutorialText: (app.fullTutorialText || '').slice(0, 5000),
           highlights: app.highlights.slice(0, 10).map((h) => h.slice(0, 300)),
@@ -224,7 +255,7 @@ export default function AdminDashboard({
 
       showMessage(
         'success',
-        'تمت مزامنة وحفظ جميع التطبيقات والباقات والشروحات في قاعدة البيانات بنجاح!'
+        'تمت مزامنة وحفظ جميع التطبيقات والباقات والشروحات في مشروع fire-ip-store بنجاح!'
       );
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'seedCatalog');
@@ -233,53 +264,155 @@ export default function AdminDashboard({
     }
   };
 
-  // Handle Separate File Upload for an App
+  // Real Firebase Storage APK / File Upload with Progress Bar (%) and Auto-Save to Firestore
   const handleAppFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !editingApp) return;
 
-    const sizeInMB = file.size / (1024 * 1024);
-    const formattedSize =
-      sizeInMB >= 1
-        ? `${sizeInMB.toFixed(1)} MB`
-        : `${Math.max(1, Math.round(file.size / 1024))} KB`;
+    const formattedSize = formatBytes(file.size);
+    const cleanFileName = file.name.replace(/\s+/g, '_').slice(0, 180);
+    const appDocId = sanitizeId(editingApp.id);
 
-    if (file.size <= 500 * 1024) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = typeof reader.result === 'string' ? reader.result : '';
-        setEditingApp((prev) =>
-          prev
-            ? {
-                ...prev,
-                directFileName: file.name.slice(0, 200),
-                size: formattedSize.slice(0, 40),
-                fileDownloadUrl: result.slice(0, 750000),
-              }
-            : null
+    // Update filename and size immediately in form state
+    setEditingApp((prev) =>
+      prev
+        ? {
+            ...prev,
+            directFileName: cleanFileName,
+            size: formattedSize.slice(0, 40),
+          }
+        : null
+    );
+
+    setIsUploadingFile(true);
+    setUploadProgress(0);
+    setUploadedBytesText(`0 KB / ${formattedSize}`);
+    setUploadSuccessMessage(null);
+    setUploadErrorMessage(null);
+
+    const storagePath = `apps/${appDocId}/${Date.now()}_${cleanFileName}`;
+    const storageRef = ref(storage, storagePath);
+
+    const uploadTask = uploadBytesResumable(storageRef, file);
+    uploadTaskRef.current = uploadTask;
+
+    uploadTask.on(
+      'state_changed',
+      (snapshot) => {
+        const pct =
+          snapshot.totalBytes > 0
+            ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
+            : 0;
+        setUploadProgress(pct);
+        setUploadedBytesText(
+          `${formatBytes(snapshot.bytesTransferred)} / ${formatBytes(
+            snapshot.totalBytes
+          )}`
         );
-        setUploadNote(
-          `تم رفع الملف "${file.name}" (${formattedSize}) وتضمينه للتحميل المباشر بنجاح.`
+      },
+      (error) => {
+        setIsUploadingFile(false);
+        uploadTaskRef.current = null;
+        console.error('Firebase Storage Upload Error:', error);
+        setUploadErrorMessage(
+          `تعذر رفع الملف إلى Firebase Storage (${error.code || error.message}). تأكد من تفعيل Storage في مشروع fire-ip-store والسماح بالرفع في Rules (allow read, write: if true;).`
         );
-      };
-      reader.readAsDataURL(file);
-    } else {
-      setEditingApp((prev) =>
-        prev
-          ? {
+      },
+      async () => {
+        try {
+          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+          setIsUploadingFile(false);
+          setUploadProgress(100);
+          uploadTaskRef.current = null;
+
+          // Update editingApp state with the real Firebase Storage download URL
+          setEditingApp((prev) => {
+            if (!prev) return null;
+            const updated: CubeTvAppItem = {
               ...prev,
-              directFileName: file.name.slice(0, 200),
+              directFileName: cleanFileName,
               size: formattedSize.slice(0, 40),
+              fileDownloadUrl: downloadURL,
+            };
+
+            // If the app already has a title, automatically persist the new fileDownloadUrl to Firestore immediately
+            if (updated.title.trim()) {
+              const cleanHighlights = updated.highlights
+                .map((h) => h.trim().slice(0, 300))
+                .filter(Boolean)
+                .slice(0, 10);
+              const cleanSteps = updated.setupSteps
+                .map((s) => s.trim().slice(0, 500))
+                .filter(Boolean)
+                .slice(0, 15);
+
+              setDoc(doc(db, 'cubeApps', appDocId), {
+                categoryId: updated.categoryId,
+                categoryLabel: (updated.categoryLabel.trim() || 'تطبيق Cube TV').slice(
+                  0,
+                  120
+                ),
+                title: updated.title.trim().slice(0, 160),
+                subtitle: (updated.subtitle.trim() || updated.title.trim()).slice(0, 400),
+                version: (updated.version.trim() || 'v1.0').slice(0, 40),
+                size: updated.size.slice(0, 40),
+                osRequirement: (
+                  updated.osRequirement.trim() || 'Android / Smart TV'
+                ).slice(0, 160),
+                downloaderCode: (updated.downloaderCode || '').trim().slice(0, 60),
+                serverHostUrl: (updated.serverHostUrl || '').trim().slice(0, 250),
+                storeAppName: (updated.storeAppName || '').trim().slice(0, 120),
+                directFileName: cleanFileName.slice(0, 200),
+                fileDownloadUrl: downloadURL.slice(0, 750000),
+                resolutionSupport: (
+                  updated.resolutionSupport.trim() || '4K UHD'
+                ).slice(0, 100),
+                fullTutorialText: (updated.fullTutorialText || '').trim().slice(0, 5000),
+                highlights:
+                  cleanHighlights.length > 0
+                    ? cleanHighlights
+                    : ['بث مباشر بجودة 4K بدون تقطيع'],
+                setupSteps:
+                  cleanSteps.length > 0
+                    ? cleanSteps
+                    : ['حمّل التطبيق وثبته على جهازك ثم أدخل كود التفعيل.'],
+                isPublic: Boolean(updated.isPublic),
+                authorUid: ADMIN_USERNAME,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+              }).catch((err) => {
+                console.error('Auto-save to Firestore after upload error:', err);
+              });
             }
-          : null
-      );
-      setUploadNote(
-        `تم ربط بيانات الملف "${file.name}" بحجم ${formattedSize}. يمكنك أيضاً وضع رابط التحميل المباشر (APK / EXE) في خانة الرابط بالأسفل.`
-      );
+
+            return updated;
+          });
+
+          setUploadSuccessMessage(
+            `تم رفع الملف "${cleanFileName}" (${formattedSize}) بنجاح 100% إلى Firebase Storage وحفظ رابط التحميل المباشر في قاعدة البيانات!`
+          );
+        } catch (urlErr) {
+          setIsUploadingFile(false);
+          setUploadErrorMessage(
+            urlErr instanceof Error
+              ? urlErr.message
+              : 'اكتمل الرفع ولكن تعذر جلب رابط التحميل المباشر.'
+          );
+        }
+      }
+    );
+  };
+
+  const handleCancelUpload = () => {
+    if (uploadTaskRef.current) {
+      uploadTaskRef.current.cancel();
+      uploadTaskRef.current = null;
+      setIsUploadingFile(false);
+      setUploadProgress(0);
     }
   };
 
-  // Save Cube App (Create or Update)
+  // Save Cube App (Create or Update) in Firestore
   const handleSaveApp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdminLoggedIn || !editingApp) return;
@@ -302,7 +435,10 @@ export default function AdminDashboard({
       subtitle: editingApp.subtitle.trim().slice(0, 400),
       version: (editingApp.version.trim() || 'v1.0').slice(0, 40),
       size: (editingApp.size.trim() || '25 MB').slice(0, 40),
-      osRequirement: (editingApp.osRequirement.trim() || 'Android / Smart TV').slice(0, 160),
+      osRequirement: (editingApp.osRequirement.trim() || 'Android / Smart TV').slice(
+        0,
+        160
+      ),
       downloaderCode: (editingApp.downloaderCode || '').trim().slice(0, 60),
       serverHostUrl: (editingApp.serverHostUrl || '').trim().slice(0, 250),
       storeAppName: (editingApp.storeAppName || '').trim().slice(0, 120),
@@ -311,7 +447,10 @@ export default function AdminDashboard({
         200
       ),
       fileDownloadUrl: (editingApp.fileDownloadUrl || '').trim().slice(0, 750000),
-      resolutionSupport: (editingApp.resolutionSupport.trim() || '4K UHD').slice(0, 100),
+      resolutionSupport: (editingApp.resolutionSupport.trim() || '4K UHD').slice(
+        0,
+        100
+      ),
       fullTutorialText: (editingApp.fullTutorialText || '').trim().slice(0, 5000),
       highlights:
         cleanHighlights.length > 0 ? cleanHighlights : ['بث مباشر بجودة 4K بدون تقطيع'],
@@ -329,9 +468,13 @@ export default function AdminDashboard({
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-      showMessage('success', `تم حفظ تطبيق "${editingApp.title}" وملفه وشروحاته بنجاح!`);
+      showMessage(
+        'success',
+        `تم حفظ تطبيق "${editingApp.title}" ورابط التحميل المباشر والشروحات في Firestore بنجاح!`
+      );
       setEditingApp(null);
-      setUploadNote('');
+      setUploadSuccessMessage(null);
+      setUploadErrorMessage(null);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `cubeApps/${docId}`);
     } finally {
@@ -520,7 +663,7 @@ export default function AdminDashboard({
             </span>
             <span aria-hidden="true">/</span>
             <span className="text-amber-400 font-medium">
-              لوحة الإدارة الشاملة ورفع الملفات والشروحات
+              لوحة الإدارة الشاملة ورفع ملفات APK المباشرة (fire-ip-store)
             </span>
           </div>
 
@@ -585,7 +728,7 @@ export default function AdminDashboard({
                 دخول مدير صالة فاير
               </h1>
               <p className="text-xs text-zinc-400 leading-relaxed">
-                أدخل اسم المستخدم وكلمة المرور الخاصة بك لإدارة التطبيقات، رفع الملفات، وإضافة الشروحات الكاملة.
+                أدخل اسم المستخدم وكلمة المرور الخاصة بك لرفع ملفات APK الحقيقية إلى Firebase Storage وإضافة الشروحات الكاملة.
               </p>
             </div>
 
@@ -657,6 +800,9 @@ export default function AdminDashboard({
               <div className="text-sm font-mono-code font-bold text-white">
                 {ADMIN_USERNAME}
               </div>
+              <div className="text-xs text-zinc-500 font-mono-code pt-0.5">
+                Project: fire-ip-store
+              </div>
             </div>
 
             <nav className="space-y-1.5">
@@ -671,7 +817,7 @@ export default function AdminDashboard({
               >
                 <span className="flex items-center gap-2.5">
                   <Tv className="w-4 h-4" />
-                  <span>تطبيقات Cube TV والملفات</span>
+                  <span>تطبيقات Cube TV وملفات APK</span>
                 </span>
                 <span className="tabular-nums">({cubeApps.length})</span>
               </button>
@@ -740,24 +886,26 @@ export default function AdminDashboard({
           {/* Main Content Viewport (9 Columns on Desktop) */}
           <main className="lg:col-span-9 space-y-6">
             {/* ===============================================================
-                TAB 1: CUBE TV APPS + SEPARATE FILE UPLOAD + FULL TUTORIALS
+                TAB 1: CUBE TV APPS + FIREBASE STORAGE APK UPLOAD + TUTORIALS
             ================================================================ */}
             {activeTab === 'apps' && (
               <div className="space-y-6">
                 <div className="p-6 rounded-xl bg-[#14171D] border border-white/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="space-y-1">
                     <h2 className="text-xl font-bold text-white font-display">
-                      إدارة تطبيقات Cube TV ورفع الملفات والشروحات
+                      إدارة تطبيقات Cube TV ورفع ملفات الـ APK المباشرة
                     </h2>
                     <p className="text-xs text-zinc-400">
-                      ارفع ملف كل جهاز بشكل منفصل (APK, EXE, PDF, Config) وأضف خطوات التثبيت والشرح المفصل لكل قسم.
+                      ارفع ملف الـ APK أو الـ EXE الحقيقي مباشرة إلى Firebase Storage مع متابعة نسبة الرفع المئوية (%) وحفظ رابط التحميل المباشر في Firestore.
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => {
                       setIsNewApp(true);
-                      setUploadNote('');
+                      setUploadSuccessMessage(null);
+                      setUploadErrorMessage(null);
+                      setUploadProgress(0);
                       setEditingApp({
                         id: `cube-app-${Date.now()}`,
                         categoryId: 'android-tv',
@@ -782,7 +930,7 @@ export default function AdminDashboard({
                     className="px-4 py-2.5 text-xs font-semibold text-zinc-950 bg-amber-500 hover:bg-amber-400 rounded-lg flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
                   >
                     <Plus className="w-4 h-4" />
-                    <span>إضافة تطبيق وملف جديد</span>
+                    <span>إضافة تطبيق وملف APK جديد</span>
                   </button>
                 </div>
 
@@ -804,7 +952,7 @@ export default function AdminDashboard({
                   ))}
                 </div>
 
-                {/* Editor Form Modal / Card when editingApp is active */}
+                {/* Editor Form Card when editingApp is active */}
                 {editingApp && (
                   <form
                     onSubmit={handleSaveApp}
@@ -813,7 +961,9 @@ export default function AdminDashboard({
                     <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
                       <div className="space-y-0.5">
                         <div className="text-xs text-amber-400 font-medium">
-                          {isNewApp ? 'إضافة تطبيق جديد' : 'تعديل التطبيق والملف والشروحات'}
+                          {isNewApp
+                            ? 'إضافة تطبيق جديد ورفع ملفه'
+                            : 'تعديل التطبيق ورفع ملف الـ APK والشروحات'}
                         </div>
                         <h3 className="text-lg font-bold text-white font-display">
                           {editingApp.title || 'تطبيق Cube TV جديد'}
@@ -821,11 +971,162 @@ export default function AdminDashboard({
                       </div>
                       <button
                         type="button"
-                        onClick={() => setEditingApp(null)}
+                        onClick={() => {
+                          handleCancelUpload();
+                          setEditingApp(null);
+                        }}
                         className="p-1.5 text-zinc-400 hover:text-white rounded-lg bg-white/[0.05] cursor-pointer"
                       >
                         <X className="w-4 h-4" />
                       </button>
+                    </div>
+
+                    {/* REAL FIREBASE STORAGE APK UPLOAD BOX WITH PROGRESS BAR (%) */}
+                    <div className="p-5 rounded-xl bg-[#0B0C0E] border border-amber-500/40 space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="text-sm font-bold text-amber-400 flex items-center gap-2">
+                            <Upload className="w-4 h-4" />
+                            <span>
+                              رفع ملف الـ APK / البرنامج الحقيقي إلى Firebase Storage
+                            </span>
+                          </div>
+                          <p className="text-xs text-zinc-400">
+                            اختر ملف الـ APK أو الـ EXE من جهازك ليتم رفعه مباشرة إلى سحابة{' '}
+                            <span className="font-mono-code text-zinc-200">
+                              fire-ip-store.firebasestorage.app
+                            </span>{' '}
+                            وتوليد رابط التحميل المباشر للزوار.
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <label
+                            className={`px-4 py-2.5 text-xs font-semibold rounded-lg whitespace-nowrap shrink-0 inline-flex items-center gap-2 transition-colors ${
+                              isUploadingFile
+                                ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed'
+                                : 'bg-amber-500 hover:bg-amber-400 text-zinc-950 cursor-pointer'
+                            }`}
+                          >
+                            <Upload className="w-4 h-4" />
+                            <span>
+                              {isUploadingFile
+                                ? 'جاري رفع الملف...'
+                                : 'اختر ملف APK / EXE للرفع المباشر'}
+                            </span>
+                            <input
+                              type="file"
+                              accept=".apk,.exe,.zip,.pdf,.mobileconfig,*/*"
+                              disabled={isUploadingFile}
+                              onChange={handleAppFileUpload}
+                              className="hidden"
+                            />
+                          </label>
+
+                          {isUploadingFile && (
+                            <button
+                              type="button"
+                              onClick={handleCancelUpload}
+                              className="px-3 py-2.5 text-xs font-medium text-rose-300 bg-rose-950/50 hover:bg-rose-900/60 border border-rose-500/30 rounded-lg cursor-pointer"
+                            >
+                              إلغاء الرفع
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* LIVE UPLOAD PROGRESS BAR (%) */}
+                      {isUploadingFile && (
+                        <div className="p-4 rounded-xl bg-[#14171D] border border-amber-500/30 space-y-2.5">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-medium text-amber-400">
+                              جاري رفع الملف إلى Firebase Storage...
+                            </span>
+                            <span className="font-mono-code font-bold text-white text-sm tabular-nums">
+                              {uploadProgress}%
+                            </span>
+                          </div>
+                          <div className="w-full h-3 rounded-full bg-[#0B0C0E] overflow-hidden border border-white/[0.08]">
+                            <div
+                              className="h-full bg-gradient-to-l from-amber-400 to-orange-500 transition-all duration-150"
+                              style={{ width: `${uploadProgress}%` }}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between text-xs text-zinc-400 font-mono-code tabular-nums">
+                            <span>{editingApp.directFileName}</span>
+                            <span>{uploadedBytesText}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* GREEN CONFIRMATION MESSAGE ON UPLOAD COMPLETE */}
+                      {uploadSuccessMessage && !isUploadingFile && (
+                        <div className="p-4 rounded-xl bg-emerald-950/50 border border-emerald-500/50 flex items-start gap-3">
+                          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                          <div className="space-y-1 text-xs">
+                            <div className="font-bold text-emerald-300">
+                              {uploadSuccessMessage}
+                            </div>
+                            <div
+                              dir="ltr"
+                              className="text-emerald-200/80 font-mono-code break-all"
+                            >
+                              {editingApp.fileDownloadUrl}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ERROR MESSAGE IF STORAGE UPLOAD FAILS */}
+                      {uploadErrorMessage && !isUploadingFile && (
+                        <div className="p-4 rounded-xl bg-rose-950/50 border border-rose-500/50 flex items-start gap-3">
+                          <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                          <div className="text-xs text-rose-200 leading-relaxed">
+                            {uploadErrorMessage}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                        <div className="space-y-1.5">
+                          <label className="block text-xs text-zinc-300">
+                            اسم الملف المرفوع (يظهر للعميل عند التنزيل)
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            dir="ltr"
+                            value={editingApp.directFileName}
+                            onChange={(e) =>
+                              setEditingApp({
+                                ...editingApp,
+                                directFileName: e.target.value,
+                              })
+                            }
+                            placeholder="CubeTV_AndroidTV_v4.8.2.apk"
+                            className="w-full px-3 py-2 text-xs font-mono-code bg-[#14171D] border border-white/[0.1] rounded-lg text-white"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="block text-xs text-zinc-300">
+                            رابط التحميل المباشر للملف في Firebase Storage
+                          </label>
+                          <input
+                            type="text"
+                            dir="ltr"
+                            value={editingApp.fileDownloadUrl}
+                            onChange={(e) =>
+                              setEditingApp({
+                                ...editingApp,
+                                fileDownloadUrl: e.target.value,
+                              })
+                            }
+                            placeholder="يتم تعبئته تلقائياً فور اكتمال رفع ملف الـ APK..."
+                            className="w-full px-3 py-2 text-xs font-mono-code bg-[#14171D] border border-white/[0.1] rounded-lg text-emerald-400"
+                          />
+                        </div>
+                      </div>
                     </div>
 
                     {/* Row 1: Category, Title, Version, Size */}
@@ -1003,78 +1304,6 @@ export default function AdminDashboard({
                       </div>
                     </div>
 
-                    {/* SEPARATE FILE UPLOAD BOX */}
-                    <div className="p-5 rounded-xl bg-[#0B0C0E] border border-white/[0.1] space-y-4">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <div className="space-y-0.5">
-                          <div className="text-xs font-semibold text-amber-400 flex items-center gap-2">
-                            <Upload className="w-4 h-4" />
-                            <span>رفع وتخصيص ملف هذا التطبيق بشكل منفصل</span>
-                          </div>
-                          <p className="text-xs text-zinc-400">
-                            اختر ملف التطبيق أو الإعدادات من جهازك (APK, EXE, PDF, MobileConfig) أو ضع رابط التحميل المباشر الخاص به.
-                          </p>
-                        </div>
-
-                        <label className="px-4 py-2 text-xs font-semibold text-zinc-950 bg-amber-500 hover:bg-amber-400 rounded-lg cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-2">
-                          <Upload className="w-3.5 h-3.5" />
-                          <span>اختيار ملف من جهازك</span>
-                          <input
-                            type="file"
-                            onChange={handleAppFileUpload}
-                            className="hidden"
-                          />
-                        </label>
-                      </div>
-
-                      {uploadNote && (
-                        <div className="p-3 rounded-lg bg-emerald-950/30 border border-emerald-500/30 text-xs text-emerald-300">
-                          {uploadNote}
-                        </div>
-                      )}
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
-                          <label className="block text-xs text-zinc-300">
-                            اسم الملف المرفوع (يظهر للعميل عند التحميل)
-                          </label>
-                          <input
-                            type="text"
-                            required
-                            dir="ltr"
-                            value={editingApp.directFileName}
-                            onChange={(e) =>
-                              setEditingApp({
-                                ...editingApp,
-                                directFileName: e.target.value,
-                              })
-                            }
-                            placeholder="CubeTV_AndroidTV_v4.8.2.apk"
-                            className="w-full px-3 py-2 text-xs font-mono-code bg-[#14171D] border border-white/[0.1] rounded-lg text-white"
-                          />
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <label className="block text-xs text-zinc-300">
-                            رابط التحميل المباشر للملف (أو الملف المرفوع تلقائياً)
-                          </label>
-                          <input
-                            type="text"
-                            dir="ltr"
-                            value={editingApp.fileDownloadUrl}
-                            onChange={(e) =>
-                              setEditingApp({
-                                ...editingApp,
-                                fileDownloadUrl: e.target.value,
-                              })
-                            }
-                            placeholder="https://example.com/files/CubeTV.apk"
-                            className="w-full px-3 py-2 text-xs font-mono-code bg-[#14171D] border border-white/[0.1] rounded-lg text-white"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
                     {/* FULL TUTORIAL & STEP-BY-STEP INSTRUCTIONS */}
                     <div className="p-5 rounded-xl bg-[#0B0C0E] border border-white/[0.1] space-y-5">
                       <div className="space-y-1">
@@ -1083,7 +1312,7 @@ export default function AdminDashboard({
                           <span>الشرح الكامل وخطوات التثبيت والتفعيل</span>
                         </div>
                         <p className="text-xs text-zinc-400">
-                          أضف الشرح المفصل الذي يظهر للعميل عند الضغط على "طريقة التثبيت" وعند تنزيل دليل الإعداد.
+                          أضف الشرح المفصل الذي يظهر للعميل عند الضغط على "الشرح الكامل والتثبيت".
                         </p>
                       </div>
 
@@ -1265,18 +1494,21 @@ export default function AdminDashboard({
                       <div className="flex items-center gap-3">
                         <button
                           type="button"
-                          onClick={() => setEditingApp(null)}
+                          onClick={() => {
+                            handleCancelUpload();
+                            setEditingApp(null);
+                          }}
                           className="px-4 py-2 text-xs font-medium text-zinc-300 hover:text-white bg-white/[0.06] rounded-lg cursor-pointer"
                         >
                           إلغاء
                         </button>
                         <button
                           type="submit"
-                          disabled={isBusy}
-                          className="px-6 py-2.5 text-xs font-semibold text-zinc-950 bg-amber-500 hover:bg-amber-400 rounded-lg flex items-center gap-2 cursor-pointer"
+                          disabled={isBusy || isUploadingFile}
+                          className="px-6 py-2.5 text-xs font-semibold text-zinc-950 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 rounded-lg flex items-center gap-2 cursor-pointer"
                         >
                           <Save className="w-4 h-4" />
-                          <span>حفظ التطبيق والملف والشرح</span>
+                          <span>حفظ التطبيق والرابط في Firestore</span>
                         </button>
                       </div>
                     </div>
@@ -1311,9 +1543,23 @@ export default function AdminDashboard({
                         <div className="text-base font-bold text-white font-display">
                           {app.title}
                         </div>
-                        <div className="text-xs text-zinc-400 font-mono-code">
-                          الملف المخصص: {app.directFileName}{' '}
-                          {app.fileDownloadUrl ? '· (مرفوع / مرتبط برابط مباشر)' : ''}
+                        <div className="flex flex-wrap items-center gap-2 text-xs font-mono-code">
+                          <span className="text-zinc-400">
+                            الملف: {app.directFileName}
+                          </span>
+                          <span aria-hidden="true" className="text-zinc-600">
+                            ·
+                          </span>
+                          {app.fileDownloadUrl ? (
+                            <span className="text-emerald-400 font-sans font-medium flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>ملف APK مرفوع وجاهز للتحميل المباشر</span>
+                            </span>
+                          ) : (
+                            <span className="text-amber-400/80 font-sans">
+                              بانتظار رفع ملف الـ APK من لوحة الإدارة
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -1322,13 +1568,16 @@ export default function AdminDashboard({
                           type="button"
                           onClick={() => {
                             setIsNewApp(false);
-                            setUploadNote('');
+                            setUploadSuccessMessage(null);
+                            setUploadErrorMessage(null);
+                            setUploadProgress(0);
                             setEditingApp({ ...app });
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
                           }}
-                          className="px-3.5 py-2 text-xs font-medium text-white bg-white/[0.06] hover:bg-white/[0.12] rounded-lg flex items-center gap-1.5 cursor-pointer"
+                          className="px-3.5 py-2 text-xs font-semibold text-zinc-950 bg-amber-500 hover:bg-amber-400 rounded-lg flex items-center gap-1.5 cursor-pointer"
                         >
-                          <Edit3 className="w-3.5 h-3.5 text-amber-400" />
-                          <span>رفع ملف / تعديل الشرح</span>
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>رفع ملف APK / تعديل الشرح</span>
                         </button>
                         <button
                           type="button"
