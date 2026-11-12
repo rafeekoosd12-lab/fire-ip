@@ -182,13 +182,13 @@ service cloud.firestore {
         isValidCubeApp(incoming()) &&
         isRafeekAdminPayload(incoming()) &&
         incoming().authorUid == existing().authorUid &&
-        incoming().createdAt == existing().createdAt &&
+        (incoming().createdAt == existing().createdAt || incoming().createdAt == request.time) &&
         incoming().updatedAt == request.time &&
         incoming().diff(existing()).affectedKeys().hasOnly([
           'categoryId', 'categoryLabel', 'title', 'subtitle', 'version', 'size',
           'osRequirement', 'downloaderCode', 'serverHostUrl', 'storeAppName',
           'directFileName', 'fileDownloadUrl', 'resolutionSupport', 'fullTutorialText',
-          'highlights', 'setupSteps', 'isPublic', 'updatedAt'
+          'highlights', 'setupSteps', 'isPublic', 'createdAt', 'updatedAt'
         ]);
       allow delete: if isValidId(appId) && (existing().authorUid == "rafeek" || isAdmin());
     }
@@ -206,11 +206,11 @@ service cloud.firestore {
         isValidCubePlan(incoming()) &&
         isRafeekAdminPayload(incoming()) &&
         incoming().authorUid == existing().authorUid &&
-        incoming().createdAt == existing().createdAt &&
+        (incoming().createdAt == existing().createdAt || incoming().createdAt == request.time) &&
         incoming().updatedAt == request.time &&
         incoming().diff(existing()).affectedKeys().hasOnly([
           'name', 'duration', 'price', 'currency', 'channelsCount', 'vodCount',
-          'quality', 'devicesAllowed', 'featured', 'isPublic', 'updatedAt'
+          'quality', 'devicesAllowed', 'featured', 'isPublic', 'createdAt', 'updatedAt'
         ]);
       allow delete: if isValidId(planId) && (existing().authorUid == "rafeek" || isAdmin());
     }
@@ -228,12 +228,12 @@ service cloud.firestore {
         isValidSatellitePlan(incoming()) &&
         isRafeekAdminPayload(incoming()) &&
         incoming().authorUid == existing().authorUid &&
-        incoming().createdAt == existing().createdAt &&
+        (incoming().createdAt == existing().createdAt || incoming().createdAt == request.time) &&
         incoming().updatedAt == request.time &&
         incoming().diff(existing()).affectedKeys().hasOnly([
           'name', 'tier', 'downloadSpeed', 'uploadSpeed', 'latency', 'dataQuota',
           'monthlyPrice', 'hardwareNote', 'idealFor', 'installationGuide',
-          'recommendedMinDevices', 'recommendedMaxDevices', 'isPublic', 'updatedAt'
+          'recommendedMinDevices', 'recommendedMaxDevices', 'isPublic', 'createdAt', 'updatedAt'
         ]);
       allow delete: if isValidId(planId) && (existing().authorUid == "rafeek" || isAdmin());
     }
@@ -251,11 +251,11 @@ service cloud.firestore {
         isValidGamePackage(incoming()) &&
         isRafeekAdminPayload(incoming()) &&
         incoming().authorUid == existing().authorUid &&
-        incoming().createdAt == existing().createdAt &&
+        (incoming().createdAt == existing().createdAt || incoming().createdAt == request.time) &&
         incoming().updatedAt == request.time &&
         incoming().diff(existing()).affectedKeys().hasOnly([
           'gameId', 'gameName', 'amountLabel', 'bonusLabel', 'deliveryType',
-          'topupInstructions', 'price', 'popular', 'isPublic', 'updatedAt'
+          'topupInstructions', 'price', 'popular', 'isPublic', 'createdAt', 'updatedAt'
         ]);
       allow delete: if isValidId(pkgId) && (existing().authorUid == "rafeek" || isAdmin());
     }

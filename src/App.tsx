@@ -30,6 +30,10 @@ import {
   Layers,
   FileCheck2,
   ExternalLink,
+  Info,
+  Phone,
+  MapPin,
+  MessageCircle,
 } from 'lucide-react';
 
 import {
@@ -256,6 +260,7 @@ export default function App() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [selectedAppGuide, setSelectedAppGuide] = useState<CubeTvAppItem | null>(null);
   const [downloadToast, setDownloadToast] = useState<DownloadNotification | null>(null);
+  const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
 
   // Satellite Advisor Device Count Slider
   const [householdDevices, setHouseholdDevices] = useState<number>(6);
@@ -514,6 +519,18 @@ export default function App() {
               <Gamepad2 className="w-4 h-4" />
               <span>شحن الألعاب</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setIsAboutModalOpen(true)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 cursor-pointer ${
+                isAboutModalOpen
+                  ? 'bg-amber-500 text-slate-950 font-semibold shadow-sm'
+                  : 'text-[#9BA3B0] hover:text-white hover:bg-white/[0.04]'
+              }`}
+            >
+              <Info className="w-4 h-4 text-amber-400" />
+              <span>حول</span>
+            </button>
           </nav>
 
           {/* Group 3: Admin Switch & Trial Request CTA */}
@@ -578,6 +595,14 @@ export default function App() {
           >
             <Gamepad2 className="w-3.5 h-3.5" />
             <span>شحن الألعاب</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsAboutModalOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-[#9BA3B0] hover:text-amber-400"
+          >
+            <Info className="w-3.5 h-3.5 text-amber-400" />
+            <span>حول</span>
           </button>
           <button
             onClick={() => setActiveNav('admin')}
@@ -1891,6 +1916,123 @@ export default function App() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          MODAL 3: ABOUT FIRE PS MODAL (حول صالة FIRE PS)
+         ===================================================================== */}
+      {isAboutModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setIsAboutModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-3xl bg-[#14171D] border border-amber-500/35 p-6 sm:p-7 space-y-6 shadow-2xl relative overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Subtle Top Ambient Orange Glow */}
+            <div
+              className="absolute -top-24 -right-24 w-56 h-56 rounded-full opacity-20 blur-3xl pointer-events-none"
+              style={{
+                background: 'radial-gradient(circle, #F59E0B 0%, #EA580C 60%, transparent 100%)',
+              }}
+            />
+
+            {/* Modal Header */}
+            <div className="relative z-10 flex items-start justify-between gap-4 border-b border-white/[0.08] pb-4">
+              <div className="flex items-center gap-3.5">
+                <img
+                  src={fireLogoImg}
+                  alt="شعار صالة FIRE PS"
+                  className="w-14 h-14 rounded-2xl object-cover border border-amber-500/50 shadow-lg shadow-amber-500/15 shrink-0"
+                />
+                <div>
+                  <span className="text-xs font-mono-code uppercase tracking-wider text-amber-400 font-semibold block">
+                    ABOUT FIRE PS LOUNGE
+                  </span>
+                  <h3 className="font-display font-extrabold text-xl text-white mt-0.5">
+                    بطاقة تعريف صالة FIRE PS
+                  </h3>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsAboutModalOpen(false)}
+                className="p-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-[#9BA3B0] hover:text-white transition-colors cursor-pointer"
+                aria-label="إغلاق"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Identity Details Card */}
+            <div className="relative z-10 rounded-2xl bg-[#0B0C0E] border border-white/[0.08] p-5 space-y-4">
+              <div className="flex items-start gap-3.5 pb-3.5 border-b border-white/[0.06]">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                  <Flame className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-xs text-[#9BA3B0]">اسم المكان</div>
+                  <div className="font-display font-bold text-base sm:text-lg text-white mt-0.5">
+                    صالة FIRE PS
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3.5 pb-3.5 border-b border-white/[0.06]">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-xs text-[#9BA3B0]">العنوان</div>
+                  <div className="font-display font-semibold text-sm sm:text-base text-white mt-0.5 leading-relaxed">
+                    حلب - العزيزية - مقابل حلويات أليا
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                  <Phone className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-xs text-[#9BA3B0]">رقم التواصل</div>
+                  <div
+                    dir="ltr"
+                    className="font-mono-code font-bold text-lg text-amber-400 tabular-nums mt-0.5 text-right"
+                  >
+                    0935200103
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Interactive Contact Buttons */}
+            <div className="relative z-10 space-y-3 pt-1">
+              <a
+                href="tel:+963935200103"
+                className="w-full py-3.5 px-5 rounded-xl bg-gradient-to-l from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-display font-bold text-sm sm:text-base shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2.5 cursor-pointer"
+              >
+                <Phone className="w-4 h-4 fill-slate-950" />
+                <span>اتصال مباشر:</span>
+                <span dir="ltr" className="font-mono-code font-extrabold tabular-nums">
+                  0935200103
+                </span>
+              </a>
+
+              <a
+                href="https://wa.me/963935200103"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-3.5 px-5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 font-display font-bold text-sm sm:text-base transition-all flex items-center justify-center gap-2.5 cursor-pointer"
+              >
+                <MessageCircle className="w-5 h-5 text-emerald-400" />
+                <span>التواصل المباشر عبر واتساب</span>
+              </a>
+            </div>
           </div>
         </div>
       )}

@@ -1,19 +1,10 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
-
-// Standalone Firebase configuration provided by the store owner (fire-ip-store) for Firestore database
-export const firebaseConfig = {
-  apiKey: 'AIzaSyBjVv-B0wdTuzKC1f7Vfb-x7SoucCKzJ-0',
-  authDomain: 'fire-ip-store.firebaseapp.com',
-  projectId: 'fire-ip-store',
-  storageBucket: 'fire-ip-store.firebasestorage.app',
-  messagingSenderId: '860072403385',
-  appId: '1:860072403385:web:75cb1f0647bcdedc3e5668',
-};
+import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
