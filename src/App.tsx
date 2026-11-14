@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import {
   Tv,
   Smartphone,
@@ -52,7 +52,6 @@ import {
 } from './data/storeData';
 
 import { db } from './firebase';
-import { buildDirectDownloadUrl } from './supabase';
 import AdminDashboard from './components/AdminDashboard';
 
 import fireLogoImg from './assets/images/fire_store_logo_1794511805615.jpg';
@@ -122,6 +121,9 @@ export default function App() {
   const [cloudGames, setCloudGames] = useState<GameTopupPackage[]>([]);
 
   useEffect(() => {
+    const CUBE_PRO_CORRECT_URL =
+      'https://yjgisbdaqfvqywfjkafq.supabase.co/storage/v1/object/public/files-ip/cube-android-tv-pro/1794521797986_CubeTV.apk';
+
     const unsubApps = onSnapshot(
       collection(db, 'cubeApps'),
       (snap) => {
@@ -140,6 +142,45 @@ export default function App() {
             fileDownloadUrl: resolvedUrl,
           });
         });
+
+        // Ensure cube-android-tv-pro in Firestore points to the exact uploaded Supabase file URL
+        const existingPro = list.find((a) => a.id === 'cube-android-tv-pro');
+        const defaultPro = CUBE_TV_APPS.find((a) => a.id === 'cube-android-tv-pro');
+        if (
+          defaultPro &&
+          (!existingPro ||
+            !existingPro.fileDownloadUrl ||
+            !existingPro.fileDownloadUrl.includes(
+              '/storage/v1/object/public/files-ip/cube-android-tv-pro/'
+            ))
+        ) {
+          const basePro = existingPro || defaultPro;
+          setDoc(doc(db, 'cubeApps', 'cube-android-tv-pro'), {
+            categoryId: basePro.categoryId,
+            categoryLabel: basePro.categoryLabel.slice(0, 120),
+            title: basePro.title.slice(0, 160),
+            subtitle: basePro.subtitle.slice(0, 400),
+            version: basePro.version.slice(0, 40),
+            size: basePro.size.slice(0, 40),
+            osRequirement: basePro.osRequirement.slice(0, 160),
+            downloaderCode: (basePro.downloaderCode || '').slice(0, 60),
+            serverHostUrl: (basePro.serverHostUrl || '').slice(0, 250),
+            storeAppName: (basePro.storeAppName || '').slice(0, 120),
+            directFileName: 'CubeTV.apk',
+            fileDownloadUrl: CUBE_PRO_CORRECT_URL,
+            resolutionSupport: basePro.resolutionSupport.slice(0, 100),
+            fullTutorialText: (basePro.fullTutorialText || '').slice(0, 5000),
+            highlights: basePro.highlights.slice(0, 10).map((h) => h.slice(0, 300)),
+            setupSteps: basePro.setupSteps.slice(0, 15).map((s) => s.slice(0, 500)),
+            isPublic: true,
+            authorUid: 'rafeek',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          }).catch((err) => {
+            console.warn('Auto-update cube-android-tv-pro URL notice:', err);
+          });
+        }
+
         setCloudApps(list);
       },
       (err) => {
@@ -205,7 +246,23 @@ export default function App() {
   const allAppsList = useMemo(() => {
     if (cloudApps.length === 0) return CUBE_TV_APPS;
     const cloudMap = new Map(cloudApps.map((item) => [item.id, item]));
-    const merged = CUBE_TV_APPS.map((defItem) => cloudMap.get(defItem.id) || defItem);
+    const merged = CUBE_TV_APPS.map((defItem) => {
+      const cloudItem = cloudMap.get(defItem.id);
+      if (!cloudItem) return defItem;
+      const validDownloadUrl =
+        defItem.id === 'cube-android-tv-pro' &&
+        (!cloudItem.fileDownloadUrl ||
+          !cloudItem.fileDownloadUrl.includes(
+            '/storage/v1/object/public/files-ip/cube-android-tv-pro/'
+          ))
+          ? defItem.fileDownloadUrl
+          : cloudItem.fileDownloadUrl || defItem.fileDownloadUrl;
+      return {
+        ...defItem,
+        ...cloudItem,
+        fileDownloadUrl: validDownloadUrl,
+      };
+    });
     const customAdded = cloudApps.filter(
       (item) => !CUBE_TV_APPS.some((defItem) => defItem.id === item.id)
     );
@@ -330,9 +387,9 @@ export default function App() {
     }, 2200);
   };
 
-  // Direct APK / File Download Handler (Downloads directly from Supabase Storage URL — never opens the guide modal)
+  // Direct APK / File Download Handler (Reads saved URL directly from database without manual reconstruction)
   const handleDownloadApp = (app: CubeTvAppItem) => {
-    const directUrl = buildDirectDownloadUrl(app.fileDownloadUrl, app.directFileName);
+    if (!app.fileDownloadUrl) return;
 
     setDownloadToast({
       appName: app.title,
@@ -342,7 +399,7 @@ export default function App() {
     });
 
     const link = document.createElement('a');
-    link.href = directUrl;
+    link.href = app.fileDownloadUrl;
     link.setAttribute('download', app.directFileName || 'CubeTV.apk');
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
@@ -1004,14 +1061,15 @@ export default function App() {
                   {/* Group 3: Primary Download Action + Full Setup Guide Button */}
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1">
                     <a
-                      href={buildDirectDownloadUrl(
-                        app.fileDownloadUrl,
-                        app.directFileName
-                      )}
+                      href={app.fileDownloadUrl || '#'}
                       download={app.directFileName || 'CubeTV.apk'}
                       target="_blank"
                       rel="noopener noreferrer"
-                      onClick={() => {
+                      onClick={(e) => {
+                        if (!app.fileDownloadUrl) {
+                          e.preventDefault();
+                          return;
+                        }
                         setDownloadToast({
                           appName: app.title,
                           fileName: app.directFileName || 'CubeTV.apk',
@@ -1717,22 +1775,21 @@ export default function App() {
             )}
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2.5 pt-2">
-              <a
-                href={buildDirectDownloadUrl(
-                  selectedAppGuide.fileDownloadUrl,
-                  selectedAppGuide.directFileName
-                )}
-                download={selectedAppGuide.directFileName || 'CubeTV.apk'}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setSelectedAppGuide(null)}
-                className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-display font-bold text-xs sm:text-sm cursor-pointer flex items-center justify-center gap-2 text-center min-w-0"
-              >
-                <Download className="w-4 h-4 shrink-0" />
-                <span className="truncate">
-                  تنزيل الملف ({selectedAppGuide.directFileName})
-                </span>
-              </a>
+              {selectedAppGuide.fileDownloadUrl && (
+                <a
+                  href={selectedAppGuide.fileDownloadUrl}
+                  download={selectedAppGuide.directFileName || 'CubeTV.apk'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setSelectedAppGuide(null)}
+                  className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-display font-bold text-xs sm:text-sm cursor-pointer flex items-center justify-center gap-2 text-center min-w-0"
+                >
+                  <Download className="w-4 h-4 shrink-0" />
+                  <span className="truncate">
+                    تنزيل الملف ({selectedAppGuide.directFileName})
+                  </span>
+                </a>
+              )}
 
               <button
                 onClick={() => setSelectedAppGuide(null)}

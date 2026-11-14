@@ -176,10 +176,7 @@ export default function AdminDashboard({
           serverHostUrl: (app.serverHostUrl || '').slice(0, 250),
           storeAppName: (app.storeAppName || '').slice(0, 120),
           directFileName: (existingApp?.directFileName || app.directFileName).slice(0, 200),
-          fileDownloadUrl: (existingApp?.fileDownloadUrl || app.fileDownloadUrl || '').slice(
-            0,
-            750000
-          ),
+          fileDownloadUrl: existingApp?.fileDownloadUrl || app.fileDownloadUrl || '',
           resolutionSupport: app.resolutionSupport.slice(0, 100),
           fullTutorialText: (app.fullTutorialText || '').slice(0, 5000),
           highlights: app.highlights.slice(0, 10).map((h) => h.slice(0, 300)),
@@ -266,9 +263,10 @@ export default function AdminDashboard({
     const file = e.target.files?.[0];
     if (!file || !editingApp) return;
 
+    const currentAppSnapshot = editingApp;
     const formattedSize = formatBytes(file.size);
     const cleanFileName = file.name.replace(/\s+/g, '_').slice(0, 180);
-    const appDocId = sanitizeId(editingApp.id);
+    const appDocId = sanitizeId(currentAppSnapshot.id);
 
     // Update filename and size immediately in form state
     setEditingApp((prev) =>
@@ -287,9 +285,9 @@ export default function AdminDashboard({
     setUploadSuccessMessage(null);
     setUploadErrorMessage(null);
 
-    const objectPath = `${appDocId}/${Date.now()}_${cleanFileName}`;
+    const fullPath = `${appDocId}/${Date.now()}_${cleanFileName}`;
 
-    const abortFn = uploadFileToSupabaseStorage(objectPath, file, {
+    const abortFn = uploadFileToSupabaseStorage(fullPath, file, {
       onProgress: (pct, loaded, total) => {
         setUploadProgress(pct);
         setUploadedBytesText(`${formatBytes(loaded)} / ${formatBytes(total)}`);
@@ -299,77 +297,81 @@ export default function AdminDashboard({
         abortUploadRef.current = null;
         setUploadErrorMessage(errorMsg);
       },
-      onSuccess: (publicUrl) => {
+      onSuccess: async (publicUrl) => {
         setIsUploadingFile(false);
         setUploadProgress(100);
         abortUploadRef.current = null;
 
-        // Update editingApp state with the real Supabase Storage Public URL
-        setEditingApp((prev) => {
-          if (!prev) return null;
-          const updated: CubeTvAppItem = {
-            ...prev,
-            directFileName: cleanFileName,
-            size: formattedSize.slice(0, 40),
-            fileDownloadUrl: publicUrl,
-          };
-
-          // Automatically persist the new Public URL to Firebase Firestore if the app has a title
-          if (updated.title.trim()) {
-            const cleanHighlights = updated.highlights
-              .map((h) => h.trim().slice(0, 300))
-              .filter(Boolean)
-              .slice(0, 10);
-            const cleanSteps = updated.setupSteps
-              .map((s) => s.trim().slice(0, 500))
-              .filter(Boolean)
-              .slice(0, 15);
-
-            setDoc(doc(db, 'cubeApps', appDocId), {
-              categoryId: updated.categoryId,
-              categoryLabel: (updated.categoryLabel.trim() || 'تطبيق Cube TV').slice(
-                0,
-                120
-              ),
-              title: updated.title.trim().slice(0, 160),
-              subtitle: (updated.subtitle.trim() || updated.title.trim()).slice(0, 400),
-              version: (updated.version.trim() || 'v1.0').slice(0, 40),
-              size: updated.size.slice(0, 40),
-              osRequirement: (
-                updated.osRequirement.trim() || 'Android / Smart TV'
-              ).slice(0, 160),
-              downloaderCode: (updated.downloaderCode || '').trim().slice(0, 60),
-              serverHostUrl: (updated.serverHostUrl || '').trim().slice(0, 250),
-              storeAppName: (updated.storeAppName || '').trim().slice(0, 120),
-              directFileName: cleanFileName.slice(0, 200),
-              fileDownloadUrl: publicUrl.slice(0, 750000),
-              resolutionSupport: (
-                updated.resolutionSupport.trim() || '4K UHD'
-              ).slice(0, 100),
-              fullTutorialText: (updated.fullTutorialText || '').trim().slice(0, 5000),
-              highlights:
-                cleanHighlights.length > 0
-                  ? cleanHighlights
-                  : ['بث مباشر بجودة 4K بدون تقطيع'],
-              setupSteps:
-                cleanSteps.length > 0
-                  ? cleanSteps
-                  : ['حمّل التطبيق وثبته على جهازك ثم أدخل كود التفعيل.'],
-              isPublic: Boolean(updated.isPublic),
-              authorUid: ADMIN_USERNAME,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-            }).catch((err) => {
-              console.error('Auto-save to Firestore after Supabase upload error:', err);
-            });
-          }
-
-          return updated;
-        });
-
-        setUploadSuccessMessage(
-          `تم رفع الملف "${cleanFileName}" (${formattedSize}) بنجاح 100% إلى مخزن Supabase Storage (المجلد: ${SUPABASE_BUCKET}) وحفظ رابط التحميل العام (Public URL) في Firebase Firestore!`
+        // Update editingApp state with the exact Supabase Storage Public URL as-is
+        setEditingApp((prev) =>
+          prev
+            ? {
+                ...prev,
+                directFileName: cleanFileName,
+                size: formattedSize.slice(0, 40),
+                fileDownloadUrl: publicUrl,
+              }
+            : null
         );
+
+        // Immediately save the exact publicUrl in Firestore without any truncation or modification
+        const titleToSave = (currentAppSnapshot.title || '').trim() || 'تطبيق Cube TV';
+        const cleanHighlights = currentAppSnapshot.highlights
+          .map((h) => h.trim().slice(0, 300))
+          .filter(Boolean)
+          .slice(0, 10);
+        const cleanSteps = currentAppSnapshot.setupSteps
+          .map((s) => s.trim().slice(0, 500))
+          .filter(Boolean)
+          .slice(0, 15);
+
+        try {
+          await setDoc(doc(db, 'cubeApps', appDocId), {
+            categoryId: currentAppSnapshot.categoryId,
+            categoryLabel: (
+              currentAppSnapshot.categoryLabel.trim() || 'تطبيق Cube TV'
+            ).slice(0, 120),
+            title: titleToSave.slice(0, 160),
+            subtitle: (currentAppSnapshot.subtitle.trim() || titleToSave).slice(0, 400),
+            version: (currentAppSnapshot.version.trim() || 'v1.0').slice(0, 40),
+            size: formattedSize.slice(0, 40),
+            osRequirement: (
+              currentAppSnapshot.osRequirement.trim() || 'Android / Smart TV'
+            ).slice(0, 160),
+            downloaderCode: (currentAppSnapshot.downloaderCode || '').trim().slice(0, 60),
+            serverHostUrl: (currentAppSnapshot.serverHostUrl || '').trim().slice(0, 250),
+            storeAppName: (currentAppSnapshot.storeAppName || '').trim().slice(0, 120),
+            directFileName: cleanFileName.slice(0, 200),
+            fileDownloadUrl: publicUrl,
+            resolutionSupport: (
+              currentAppSnapshot.resolutionSupport.trim() || '4K UHD'
+            ).slice(0, 100),
+            fullTutorialText: (currentAppSnapshot.fullTutorialText || '')
+              .trim()
+              .slice(0, 5000),
+            highlights:
+              cleanHighlights.length > 0
+                ? cleanHighlights
+                : ['بث مباشر بجودة 4K بدون تقطيع'],
+            setupSteps:
+              cleanSteps.length > 0
+                ? cleanSteps
+                : ['حمّل التطبيق وثبته على جهازك ثم أدخل كود التفعيل.'],
+            isPublic: Boolean(currentAppSnapshot.isPublic),
+            authorUid: ADMIN_USERNAME,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+
+          setUploadSuccessMessage(
+            `تم رفع الملف "${cleanFileName}" (${formattedSize}) بنجاح 100% إلى مخزن Supabase Storage (المجلد: ${SUPABASE_BUCKET}) وحفظ الرابط الكامل في Firebase Firestore!`
+          );
+        } catch (err) {
+          console.error('Auto-save to Firestore after Supabase upload error:', err);
+          setUploadErrorMessage(
+            'تم رفع الملف إلى Supabase، ولكن حدث خطأ أثناء التحديث التلقائي في Firestore. اضغط على زر حفظ بيانات التطبيق أدناه.'
+          );
+        }
       },
     });
 
@@ -419,7 +421,7 @@ export default function AdminDashboard({
         0,
         200
       ),
-      fileDownloadUrl: (editingApp.fileDownloadUrl || '').trim().slice(0, 750000),
+      fileDownloadUrl: editingApp.fileDownloadUrl || '',
       resolutionSupport: (editingApp.resolutionSupport.trim() || '4K UHD').slice(
         0,
         100

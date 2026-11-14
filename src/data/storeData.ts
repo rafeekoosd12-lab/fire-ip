@@ -95,8 +95,9 @@ export const CUBE_TV_APPS: CubeTvAppItem[] = [
     downloaderCode: '749281',
     serverHostUrl: 'http://tv.fire-cube.net:8080',
     storeAppName: 'Downloader by AFTVnews',
-    directFileName: 'CubeTV_AndroidTV_v4.8.2.apk',
-    fileDownloadUrl: '',
+    directFileName: 'CubeTV.apk',
+    fileDownloadUrl:
+      'https://yjgisbdaqfvqywfjkafq.supabase.co/storage/v1/object/public/files-ip/cube-android-tv-pro/1794521797986_CubeTV.apk',
     resolutionSupport: '4K UHD · HEVC H.265',
     fullTutorialText:
       'شرح التثبيت الكامل على شاشات أندرويد و Google TV:\n1. قم بفتح متجر Google Play على الشاشة وابحث عن تطبيق Downloader البرتقالي وثبته.\n2. من إعدادات الشاشة -> الأمان والقيود -> فعّل خيار السماح بتثبيت التطبيقات غير المعروفة لتطبيق Downloader.\n3. افتح تطبيق Downloader وأدخل الكود 749281 ثم اضغط Go ليبدأ تحميل ملف CubeTV_AndroidTV_v4.8.2.apk تلقائياً.\n4. بعد فتح التطبيق، أدخل اسم المستخدم وكلمة المرور المستلمة من صالة فاير لفتح الباقات فوراً.',
