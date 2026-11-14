@@ -3,8 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { collection, doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Tv,
   Smartphone,
@@ -51,7 +50,11 @@ import {
   type GameTopupPackage,
 } from './data/storeData';
 
-import { db } from './firebase';
+import {
+  fetchStoreConfigFromSupabase,
+  subscribeToStoreConfigRealtime,
+  type StoreConfigData,
+} from './supabase';
 import AdminDashboard from './components/AdminDashboard';
 
 import fireLogoImg from './assets/images/fire_store_logo_1794511805615.jpg';
@@ -114,196 +117,76 @@ export default function App() {
     }
   };
 
-  // Real-time Firestore State from standalone project (fire-ip-store)
-  const [cloudApps, setCloudApps] = useState<CubeTvAppItem[]>([]);
-  const [cloudPlans, setCloudPlans] = useState<CubeSubscriptionPlan[]>([]);
-  const [cloudSatellite, setCloudSatellite] = useState<SatellitePlan[]>([]);
-  const [cloudGames, setCloudGames] = useState<GameTopupPackage[]>([]);
+  // Real-time Store State synced with Supabase table `store_config` (where id = 'main')
+  const [cloudApps, setCloudApps] = useState<CubeTvAppItem[]>(CUBE_TV_APPS);
+  const [cloudPlans, setCloudPlans] = useState<CubeSubscriptionPlan[]>(
+    CUBE_SUBSCRIPTION_PLANS
+  );
+  const [cloudSatellite, setCloudSatellite] = useState<SatellitePlan[]>(
+    SATELLITE_INTERNET_PLANS
+  );
+  const [cloudGames, setCloudGames] = useState<GameTopupPackage[]>(GAME_TOPUP_PACKAGES);
 
-  useEffect(() => {
-    const CUBE_PRO_CORRECT_URL =
-      'https://yjgisbdaqfvqywfjkafq.supabase.co/storage/v1/object/public/files-ip/cube-android-tv-pro/1794521797986_CubeTV.apk';
-
-    const unsubApps = onSnapshot(
-      collection(db, 'cubeApps'),
-      (snap) => {
-        const list: CubeTvAppItem[] = [];
-        snap.forEach((docSnap) => {
-          const raw = docSnap.data() as Record<string, unknown>;
-          const data = raw as unknown as Omit<CubeTvAppItem, 'id'>;
-          const resolvedUrl =
-            (typeof raw.fileDownloadUrl === 'string' && raw.fileDownloadUrl.trim()) ||
-            (typeof raw.downloadUrl === 'string' && raw.downloadUrl.trim()) ||
-            (typeof raw.fileUrl === 'string' && raw.fileUrl.trim()) ||
-            '';
-          list.push({
-            ...data,
-            id: docSnap.id,
-            fileDownloadUrl: resolvedUrl,
-          });
-        });
-
-        // Ensure cube-android-tv-pro in Firestore points to the exact uploaded Supabase file URL
-        const existingPro = list.find((a) => a.id === 'cube-android-tv-pro');
-        const defaultPro = CUBE_TV_APPS.find((a) => a.id === 'cube-android-tv-pro');
-        if (
-          defaultPro &&
-          (!existingPro ||
-            !existingPro.fileDownloadUrl ||
-            !existingPro.fileDownloadUrl.includes(
-              '/storage/v1/object/public/files-ip/cube-android-tv-pro/'
-            ))
-        ) {
-          const basePro = existingPro || defaultPro;
-          setDoc(doc(db, 'cubeApps', 'cube-android-tv-pro'), {
-            categoryId: basePro.categoryId,
-            categoryLabel: basePro.categoryLabel.slice(0, 120),
-            title: basePro.title.slice(0, 160),
-            subtitle: basePro.subtitle.slice(0, 400),
-            version: basePro.version.slice(0, 40),
-            size: basePro.size.slice(0, 40),
-            osRequirement: basePro.osRequirement.slice(0, 160),
-            downloaderCode: (basePro.downloaderCode || '').slice(0, 60),
-            serverHostUrl: (basePro.serverHostUrl || '').slice(0, 250),
-            storeAppName: (basePro.storeAppName || '').slice(0, 120),
-            directFileName: 'CubeTV.apk',
-            fileDownloadUrl: CUBE_PRO_CORRECT_URL,
-            resolutionSupport: basePro.resolutionSupport.slice(0, 100),
-            fullTutorialText: (basePro.fullTutorialText || '').slice(0, 5000),
-            highlights: basePro.highlights.slice(0, 10).map((h) => h.slice(0, 300)),
-            setupSteps: basePro.setupSteps.slice(0, 15).map((s) => s.slice(0, 500)),
-            isPublic: true,
-            authorUid: 'rafeek',
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          }).catch((err) => {
-            console.warn('Auto-update cube-android-tv-pro URL notice:', err);
-          });
-        }
-
-        setCloudApps(list);
-      },
-      (err) => {
-        console.warn('Firestore cubeApps listener notice:', err.message);
-      }
-    );
-
-    const unsubPlans = onSnapshot(
-      collection(db, 'cubePlans'),
-      (snap) => {
-        const list: CubeSubscriptionPlan[] = [];
-        snap.forEach((docSnap) => {
-          const data = docSnap.data() as Omit<CubeSubscriptionPlan, 'id'>;
-          list.push({ ...data, id: docSnap.id });
-        });
-        setCloudPlans(list);
-      },
-      (err) => {
-        console.warn('Firestore cubePlans listener notice:', err.message);
-      }
-    );
-
-    const unsubSat = onSnapshot(
-      collection(db, 'satellitePlans'),
-      (snap) => {
-        const list: SatellitePlan[] = [];
-        snap.forEach((docSnap) => {
-          const data = docSnap.data() as Omit<SatellitePlan, 'id'>;
-          list.push({ ...data, id: docSnap.id });
-        });
-        setCloudSatellite(list);
-      },
-      (err) => {
-        console.warn('Firestore satellitePlans listener notice:', err.message);
-      }
-    );
-
-    const unsubGames = onSnapshot(
-      collection(db, 'gamePackages'),
-      (snap) => {
-        const list: GameTopupPackage[] = [];
-        snap.forEach((docSnap) => {
-          const data = docSnap.data() as Omit<GameTopupPackage, 'id'>;
-          list.push({ ...data, id: docSnap.id });
-        });
-        setCloudGames(list);
-      },
-      (err) => {
-        console.warn('Firestore gamePackages listener notice:', err.message);
-      }
-    );
-
-    return () => {
-      unsubApps();
-      unsubPlans();
-      unsubSat();
-      unsubGames();
-    };
+  const applyStoreConfigData = useCallback((storeData: StoreConfigData) => {
+    if (Array.isArray(storeData.cubeApps) && storeData.cubeApps.length > 0) {
+      setCloudApps(storeData.cubeApps);
+    }
+    if (Array.isArray(storeData.cubePlans) && storeData.cubePlans.length > 0) {
+      setCloudPlans(storeData.cubePlans);
+    }
+    if (
+      Array.isArray(storeData.satellitePlans) &&
+      storeData.satellitePlans.length > 0
+    ) {
+      setCloudSatellite(storeData.satellitePlans);
+    }
+    if (Array.isArray(storeData.gamePackages) && storeData.gamePackages.length > 0) {
+      setCloudGames(storeData.gamePackages);
+    }
   }, []);
 
-  // Merge cloud documents with default catalog by ID so uploading a single APK immediately updates
-  // that card with the real Firebase Storage download link while keeping the rest of the catalog intact.
-  const allAppsList = useMemo(() => {
-    if (cloudApps.length === 0) return CUBE_TV_APPS;
-    const cloudMap = new Map(cloudApps.map((item) => [item.id, item]));
-    const merged = CUBE_TV_APPS.map((defItem) => {
-      const cloudItem = cloudMap.get(defItem.id);
-      if (!cloudItem) return defItem;
-      const validDownloadUrl =
-        defItem.id === 'cube-android-tv-pro' &&
-        (!cloudItem.fileDownloadUrl ||
-          !cloudItem.fileDownloadUrl.includes(
-            '/storage/v1/object/public/files-ip/cube-android-tv-pro/'
-          ))
-          ? defItem.fileDownloadUrl
-          : cloudItem.fileDownloadUrl || defItem.fileDownloadUrl;
-      return {
-        ...defItem,
-        ...cloudItem,
-        fileDownloadUrl: validDownloadUrl,
-      };
+  useEffect(() => {
+    let isMounted = true;
+
+    // 1. Fetch initial store_config (where id = 'main') from Supabase on load
+    fetchStoreConfigFromSupabase().then((res) => {
+      if (isMounted && res.data) {
+        applyStoreConfigData(res.data);
+      }
     });
-    const customAdded = cloudApps.filter(
-      (item) => !CUBE_TV_APPS.some((defItem) => defItem.id === item.id)
-    );
-    return [...merged, ...customAdded];
-  }, [cloudApps]);
 
-  const allPlansList = useMemo(() => {
-    if (cloudPlans.length === 0) return CUBE_SUBSCRIPTION_PLANS;
-    const cloudMap = new Map(cloudPlans.map((item) => [item.id, item]));
-    const merged = CUBE_SUBSCRIPTION_PLANS.map(
-      (defItem) => cloudMap.get(defItem.id) || defItem
-    );
-    const customAdded = cloudPlans.filter(
-      (item) => !CUBE_SUBSCRIPTION_PLANS.some((defItem) => defItem.id === item.id)
-    );
-    return [...merged, ...customAdded];
-  }, [cloudPlans]);
+    // 2. Enable Realtime subscription on store_config (id = 'main') so visitors see edits immediately
+    const unsubscribeRealtime = subscribeToStoreConfigRealtime((updatedData) => {
+      if (isMounted) {
+        applyStoreConfigData(updatedData);
+      }
+    });
 
-  const allSatelliteList = useMemo(() => {
-    if (cloudSatellite.length === 0) return SATELLITE_INTERNET_PLANS;
-    const cloudMap = new Map(cloudSatellite.map((item) => [item.id, item]));
-    const merged = SATELLITE_INTERNET_PLANS.map(
-      (defItem) => cloudMap.get(defItem.id) || defItem
-    );
-    const customAdded = cloudSatellite.filter(
-      (item) => !SATELLITE_INTERNET_PLANS.some((defItem) => defItem.id === item.id)
-    );
-    return [...merged, ...customAdded];
-  }, [cloudSatellite]);
+    return () => {
+      isMounted = false;
+      unsubscribeRealtime();
+    };
+  }, [applyStoreConfigData]);
 
-  const allGamePackagesList = useMemo(() => {
-    if (cloudGames.length === 0) return GAME_TOPUP_PACKAGES;
-    const cloudMap = new Map(cloudGames.map((item) => [item.id, item]));
-    const merged = GAME_TOPUP_PACKAGES.map(
-      (defItem) => cloudMap.get(defItem.id) || defItem
-    );
-    const customAdded = cloudGames.filter(
-      (item) => !GAME_TOPUP_PACKAGES.some((defItem) => defItem.id === item.id)
-    );
-    return [...merged, ...customAdded];
-  }, [cloudGames]);
+  const allAppsList = useMemo(
+    () => (cloudApps.length > 0 ? cloudApps : CUBE_TV_APPS),
+    [cloudApps]
+  );
+
+  const allPlansList = useMemo(
+    () => (cloudPlans.length > 0 ? cloudPlans : CUBE_SUBSCRIPTION_PLANS),
+    [cloudPlans]
+  );
+
+  const allSatelliteList = useMemo(
+    () => (cloudSatellite.length > 0 ? cloudSatellite : SATELLITE_INTERNET_PLANS),
+    [cloudSatellite]
+  );
+
+  const allGamePackagesList = useMemo(
+    () => (cloudGames.length > 0 ? cloudGames : GAME_TOPUP_PACKAGES),
+    [cloudGames]
+  );
 
   // Publicly visible lists for storefront
   const publicApps = useMemo(
@@ -469,6 +352,7 @@ export default function App() {
         cubePlans={allPlansList}
         satellitePlans={allSatelliteList}
         gamePackages={allGamePackagesList}
+        onStoreDataUpdated={applyStoreConfigData}
         onCloseAdmin={() => setActiveNav('all')}
       />
     );

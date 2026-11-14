@@ -92,7 +92,7 @@ export const CUBE_TV_APPS: CubeTvAppItem[] = [
     version: 'v4.8.2',
     size: '38.4 MB',
     osRequirement: 'Android TV 7.0+ / Google TV / Fire TV Stick',
-    downloaderCode: '749281',
+    downloaderCode: '6495278',
     serverHostUrl: 'http://tv.fire-cube.net:8080',
     storeAppName: 'Downloader by AFTVnews',
     directFileName: 'CubeTV.apk',
@@ -100,7 +100,7 @@ export const CUBE_TV_APPS: CubeTvAppItem[] = [
       'https://yjgisbdaqfvqywfjkafq.supabase.co/storage/v1/object/public/files-ip/cube-android-tv-pro/1794521797986_CubeTV.apk',
     resolutionSupport: '4K UHD · HEVC H.265',
     fullTutorialText:
-      'شرح التثبيت الكامل على شاشات أندرويد و Google TV:\n1. قم بفتح متجر Google Play على الشاشة وابحث عن تطبيق Downloader البرتقالي وثبته.\n2. من إعدادات الشاشة -> الأمان والقيود -> فعّل خيار السماح بتثبيت التطبيقات غير المعروفة لتطبيق Downloader.\n3. افتح تطبيق Downloader وأدخل الكود 749281 ثم اضغط Go ليبدأ تحميل ملف CubeTV_AndroidTV_v4.8.2.apk تلقائياً.\n4. بعد فتح التطبيق، أدخل اسم المستخدم وكلمة المرور المستلمة من صالة فاير لفتح الباقات فوراً.',
+      'شرح التثبيت الكامل على شاشات أندرويد و Google TV:\n1. قم بفتح متجر Google Play على الشاشة وابحث عن تطبيق Downloader البرتقالي وثبته.\n2. من إعدادات الشاشة -> الأمان والقيود -> فعّل خيار السماح بتثبيت التطبيقات غير المعروفة لتطبيق Downloader.\n3. افتح تطبيق Downloader وأدخل الكود 6495278 ثم اضغط Go ليبدأ تحميل ملف CubeTV.apk تلقائياً.\n4. بعد فتح التطبيق، أدخل اسم المستخدم وكلمة المرور المستلمة من صالة فاير لفتح الباقات فوراً.',
     highlights: [
       'دعم كامل للتحكم عبر ريموت الشاشة والبحث الصوتي',
       'تقنية Anti-Freeze لمنع التقطيع وقت المباريات المباشرة',
@@ -108,7 +108,7 @@ export const CUBE_TV_APPS: CubeTvAppItem[] = [
     ],
     setupSteps: [
       'افتح متجر Google Play على شاشتك وحمّل تطبيق Downloader by AFTVnews.',
-      'أدخل كود التحميل السريع 749281 في خانة الرقم واضغط Go للتحميل المباشر.',
+      'أدخل كود التحميل السريع 6495278 في خانة الرقم واضغط Go للتحميل المباشر.',
       'بعد التثبيت، افتح تطبيق Cube TV Pro وأدخل اسم المستخدم وكلمة المرور المستلمة من صالة فاير.',
     ],
     isPublic: true,

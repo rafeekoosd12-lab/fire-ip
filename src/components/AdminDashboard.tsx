@@ -1,13 +1,11 @@
 import React, { useState, useRef } from 'react';
 import {
-  doc,
-  setDoc,
-  deleteDoc,
-  serverTimestamp,
-} from 'firebase/firestore';
-import {
   uploadFileToSupabaseStorage,
+  upsertStoreConfigToSupabase,
   SUPABASE_BUCKET,
+  STORE_CONFIG_TABLE,
+  STORE_CONFIG_ROW_ID,
+  type StoreConfigData,
 } from '../supabase';
 import {
   Tv,
@@ -16,7 +14,6 @@ import {
   CreditCard,
   Plus,
   Trash2,
-  Edit3,
   Upload,
   CheckCircle2,
   AlertCircle,
@@ -31,11 +28,6 @@ import {
   Lock,
   User as UserIcon,
 } from 'lucide-react';
-import {
-  db,
-  OperationType,
-  handleFirestoreError,
-} from '../firebase';
 import {
   DEVICE_CATEGORIES,
   CUBE_TV_APPS,
@@ -58,6 +50,7 @@ interface AdminDashboardProps {
   cubePlans: CubeSubscriptionPlan[];
   satellitePlans: SatellitePlan[];
   gamePackages: GameTopupPackage[];
+  onStoreDataUpdated: (newData: StoreConfigData) => void;
   onCloseAdmin: () => void;
 }
 
@@ -93,6 +86,7 @@ export default function AdminDashboard({
   cubePlans,
   satellitePlans,
   gamePackages,
+  onStoreDataUpdated,
   onCloseAdmin,
 }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<AdminSectionTab>('apps');
@@ -135,7 +129,7 @@ export default function AdminDashboard({
     setStatusBanner({ type, message });
     setTimeout(() => {
       setStatusBanner((prev) => (prev?.message === message ? null : prev));
-    }, 6000);
+    }, 8000);
   };
 
   // Direct Login Handler (rafeek / 22108877dd)
@@ -149,116 +143,46 @@ export default function AdminDashboard({
       onAdminLoginSuccess();
       showMessage(
         'success',
-        'تم تسجيل الدخول بنجاح — مرحباً بك يا رفيق في لوحة إدارة صالة فاير (fire-ip-store)'
+        'تم تسجيل الدخول بنجاح — مرحباً بك يا رفيق في لوحة إدارة صالة فاير المتصلة بـ Supabase (store_config)'
       );
     } else {
       setLoginError('اسم المستخدم أو كلمة المرور غير صحيحة');
     }
   };
 
-  // Seed Default Store Catalog into Firestore
-  const handleSeedDefaultCatalog = async () => {
+  // Sync / Upsert All Store Data to Supabase `store_config` (where id = 'main')
+  const handleSyncToSupabaseCloud = async () => {
     if (!isAdminLoggedIn) return;
     setIsBusy(true);
-    try {
-      for (const app of CUBE_TV_APPS) {
-        const docId = sanitizeId(app.id);
-        const existingApp = cubeApps.find((a) => a.id === docId);
-        await setDoc(doc(db, 'cubeApps', docId), {
-          categoryId: app.categoryId,
-          categoryLabel: app.categoryLabel.slice(0, 120),
-          title: app.title.slice(0, 160),
-          subtitle: app.subtitle.slice(0, 400),
-          version: app.version.slice(0, 40),
-          size: (existingApp?.size || app.size).slice(0, 40),
-          osRequirement: app.osRequirement.slice(0, 160),
-          downloaderCode: (app.downloaderCode || '').slice(0, 60),
-          serverHostUrl: (app.serverHostUrl || '').slice(0, 250),
-          storeAppName: (app.storeAppName || '').slice(0, 120),
-          directFileName: (existingApp?.directFileName || app.directFileName).slice(0, 200),
-          fileDownloadUrl: existingApp?.fileDownloadUrl || app.fileDownloadUrl || '',
-          resolutionSupport: app.resolutionSupport.slice(0, 100),
-          fullTutorialText: (app.fullTutorialText || '').slice(0, 5000),
-          highlights: app.highlights.slice(0, 10).map((h) => h.slice(0, 300)),
-          setupSteps: app.setupSteps.slice(0, 15).map((s) => s.slice(0, 500)),
-          isPublic: true,
-          authorUid: ADMIN_USERNAME,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      }
+    setStatusBanner(null);
 
-      for (const plan of CUBE_SUBSCRIPTION_PLANS) {
-        const docId = sanitizeId(plan.id);
-        await setDoc(doc(db, 'cubePlans', docId), {
-          name: plan.name.slice(0, 160),
-          duration: plan.duration.slice(0, 80),
-          price: Number(plan.price),
-          currency: plan.currency.slice(0, 20),
-          channelsCount: plan.channelsCount.slice(0, 120),
-          vodCount: plan.vodCount.slice(0, 120),
-          quality: plan.quality.slice(0, 120),
-          devicesAllowed: plan.devicesAllowed.slice(0, 120),
-          featured: Boolean(plan.featured),
-          isPublic: true,
-          authorUid: ADMIN_USERNAME,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      }
+    const allStoreData: StoreConfigData = {
+      cubeApps: cubeApps.length > 0 ? cubeApps : CUBE_TV_APPS,
+      cubePlans: cubePlans.length > 0 ? cubePlans : CUBE_SUBSCRIPTION_PLANS,
+      satellitePlans:
+        satellitePlans.length > 0 ? satellitePlans : SATELLITE_INTERNET_PLANS,
+      gamePackages: gamePackages.length > 0 ? gamePackages : GAME_TOPUP_PACKAGES,
+      updatedAt: new Date().toISOString(),
+    };
 
-      for (const sat of SATELLITE_INTERNET_PLANS) {
-        const docId = sanitizeId(sat.id);
-        await setDoc(doc(db, 'satellitePlans', docId), {
-          name: sat.name.slice(0, 160),
-          tier: sat.tier.slice(0, 120),
-          downloadSpeed: sat.downloadSpeed.slice(0, 60),
-          uploadSpeed: sat.uploadSpeed.slice(0, 60),
-          latency: sat.latency.slice(0, 60),
-          dataQuota: sat.dataQuota.slice(0, 160),
-          monthlyPrice: Number(sat.monthlyPrice),
-          hardwareNote: sat.hardwareNote.slice(0, 300),
-          idealFor: sat.idealFor.slice(0, 300),
-          installationGuide: (sat.installationGuide || '').slice(0, 3000),
-          recommendedMinDevices: Number(sat.recommendedMinDevices),
-          recommendedMaxDevices: Number(sat.recommendedMaxDevices),
-          isPublic: true,
-          authorUid: ADMIN_USERNAME,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      }
+    const res = await upsertStoreConfigToSupabase(allStoreData);
+    setIsBusy(false);
 
-      for (const pkg of GAME_TOPUP_PACKAGES) {
-        const docId = sanitizeId(pkg.id);
-        await setDoc(doc(db, 'gamePackages', docId), {
-          gameId: pkg.gameId,
-          gameName: pkg.gameName.slice(0, 120),
-          amountLabel: pkg.amountLabel.slice(0, 160),
-          bonusLabel: pkg.bonusLabel.slice(0, 160),
-          deliveryType: pkg.deliveryType.slice(0, 120),
-          topupInstructions: (pkg.topupInstructions || '').slice(0, 2000),
-          price: Number(pkg.price),
-          popular: Boolean(pkg.popular),
-          isPublic: true,
-          authorUid: ADMIN_USERNAME,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      }
-
+    if (res.ok && res.data) {
+      onStoreDataUpdated(res.data);
       showMessage(
         'success',
-        'تمت مزامنة وحفظ جميع التطبيقات والباقات والشروحات في مشروع fire-ip-store بنجاح!'
+        `تمت مزامنة وحفظ جميع بيانات المتجر بنجاح في جدول ${STORE_CONFIG_TABLE} (id = '${STORE_CONFIG_ROW_ID}') على Supabase وتحديث الموقع لدى جميع الزوار فوراً!`
       );
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'seedCatalog');
-    } finally {
-      setIsBusy(false);
+    } else {
+      showMessage(
+        'error',
+        res.errorMessage || 'تعذر حفظ البيانات في جدول store_config على Supabase.'
+      );
     }
   };
 
-  // Real Supabase Storage APK / File Upload to bucket `files-ip` with Progress Bar (%) and Auto-Save Public URL to Firestore
+  // Real Supabase Storage APK / File Upload to bucket `files-ip` with Progress Bar (%) and Auto-Upsert to Supabase `store_config`
   const handleAppFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !editingApp) return;
@@ -296,11 +220,25 @@ export default function AdminDashboard({
         setIsUploadingFile(false);
         abortUploadRef.current = null;
         setUploadErrorMessage(errorMsg);
+        showMessage('error', errorMsg);
       },
       onSuccess: async (publicUrl) => {
         setIsUploadingFile(false);
         setUploadProgress(100);
         abortUploadRef.current = null;
+
+        const updatedApp: CubeTvAppItem = {
+          ...currentAppSnapshot,
+          id: appDocId,
+          title: (currentAppSnapshot.title || '').trim() || 'تطبيق Cube TV',
+          subtitle:
+            (currentAppSnapshot.subtitle || '').trim() ||
+            (currentAppSnapshot.title || '').trim() ||
+            'تطبيق Cube TV',
+          directFileName: cleanFileName,
+          size: formattedSize.slice(0, 40),
+          fileDownloadUrl: publicUrl,
+        };
 
         // Update editingApp state with the exact Supabase Storage Public URL as-is
         setEditingApp((prev) =>
@@ -314,63 +252,32 @@ export default function AdminDashboard({
             : null
         );
 
-        // Immediately save the exact publicUrl in Firestore without any truncation or modification
-        const titleToSave = (currentAppSnapshot.title || '').trim() || 'تطبيق Cube TV';
-        const cleanHighlights = currentAppSnapshot.highlights
-          .map((h) => h.trim().slice(0, 300))
-          .filter(Boolean)
-          .slice(0, 10);
-        const cleanSteps = currentAppSnapshot.setupSteps
-          .map((s) => s.trim().slice(0, 500))
-          .filter(Boolean)
-          .slice(0, 15);
+        // Build updated apps list and upsert to Supabase `store_config` ({ id: 'main', data: allStoreData })
+        const exists = cubeApps.some((a) => a.id === appDocId);
+        const nextApps = exists
+          ? cubeApps.map((a) => (a.id === appDocId ? updatedApp : a))
+          : [...cubeApps, updatedApp];
 
-        try {
-          await setDoc(doc(db, 'cubeApps', appDocId), {
-            categoryId: currentAppSnapshot.categoryId,
-            categoryLabel: (
-              currentAppSnapshot.categoryLabel.trim() || 'تطبيق Cube TV'
-            ).slice(0, 120),
-            title: titleToSave.slice(0, 160),
-            subtitle: (currentAppSnapshot.subtitle.trim() || titleToSave).slice(0, 400),
-            version: (currentAppSnapshot.version.trim() || 'v1.0').slice(0, 40),
-            size: formattedSize.slice(0, 40),
-            osRequirement: (
-              currentAppSnapshot.osRequirement.trim() || 'Android / Smart TV'
-            ).slice(0, 160),
-            downloaderCode: (currentAppSnapshot.downloaderCode || '').trim().slice(0, 60),
-            serverHostUrl: (currentAppSnapshot.serverHostUrl || '').trim().slice(0, 250),
-            storeAppName: (currentAppSnapshot.storeAppName || '').trim().slice(0, 120),
-            directFileName: cleanFileName.slice(0, 200),
-            fileDownloadUrl: publicUrl,
-            resolutionSupport: (
-              currentAppSnapshot.resolutionSupport.trim() || '4K UHD'
-            ).slice(0, 100),
-            fullTutorialText: (currentAppSnapshot.fullTutorialText || '')
-              .trim()
-              .slice(0, 5000),
-            highlights:
-              cleanHighlights.length > 0
-                ? cleanHighlights
-                : ['بث مباشر بجودة 4K بدون تقطيع'],
-            setupSteps:
-              cleanSteps.length > 0
-                ? cleanSteps
-                : ['حمّل التطبيق وثبته على جهازك ثم أدخل كود التفعيل.'],
-            isPublic: Boolean(currentAppSnapshot.isPublic),
-            authorUid: ADMIN_USERNAME,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
+        const allStoreData: StoreConfigData = {
+          cubeApps: nextApps,
+          cubePlans,
+          satellitePlans,
+          gamePackages,
+          updatedAt: new Date().toISOString(),
+        };
 
-          setUploadSuccessMessage(
-            `تم رفع الملف "${cleanFileName}" (${formattedSize}) بنجاح 100% إلى مخزن Supabase Storage (المجلد: ${SUPABASE_BUCKET}) وحفظ الرابط الكامل في Firebase Firestore!`
-          );
-        } catch (err) {
-          console.error('Auto-save to Firestore after Supabase upload error:', err);
-          setUploadErrorMessage(
-            'تم رفع الملف إلى Supabase، ولكن حدث خطأ أثناء التحديث التلقائي في Firestore. اضغط على زر حفظ بيانات التطبيق أدناه.'
-          );
+        const upsertRes = await upsertStoreConfigToSupabase(allStoreData);
+        if (upsertRes.ok && upsertRes.data) {
+          onStoreDataUpdated(upsertRes.data);
+          const msg = `تم رفع الملف "${cleanFileName}" (${formattedSize}) بنجاح 100% إلى Supabase Storage (${SUPABASE_BUCKET}) وحفظ الرابط الكامل في جدول ${STORE_CONFIG_TABLE} (id = '${STORE_CONFIG_ROW_ID}')!`;
+          setUploadSuccessMessage(msg);
+          showMessage('success', msg);
+        } else {
+          const errMsg =
+            upsertRes.errorMessage ||
+            'تم رفع الملف إلى Supabase Storage، ولكن تعذر تحديث جدول store_config تلقائياً.';
+          setUploadErrorMessage(errMsg);
+          showMessage('error', errMsg);
         }
       },
     });
@@ -387,12 +294,14 @@ export default function AdminDashboard({
     }
   };
 
-  // Save Cube App (Create or Update) in Firestore
+  // Save Cube App (Create or Update) via upsert in Supabase `store_config` ({ id: 'main', data: allStoreData })
   const handleSaveApp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdminLoggedIn || !editingApp) return;
 
     setIsBusy(true);
+    setStatusBanner(null);
+
     const docId = sanitizeId(editingApp.id);
     const cleanHighlights = editingApp.highlights
       .map((h) => h.trim().slice(0, 300))
@@ -403,7 +312,8 @@ export default function AdminDashboard({
       .filter(Boolean)
       .slice(0, 15);
 
-    const payloadBase = {
+    const savedApp: CubeTvAppItem = {
+      id: docId,
       categoryId: editingApp.categoryId,
       categoryLabel: (editingApp.categoryLabel.trim() || 'تطبيق Cube TV').slice(0, 120),
       title: editingApp.title.trim().slice(0, 160),
@@ -417,10 +327,7 @@ export default function AdminDashboard({
       downloaderCode: (editingApp.downloaderCode || '').trim().slice(0, 60),
       serverHostUrl: (editingApp.serverHostUrl || '').trim().slice(0, 250),
       storeAppName: (editingApp.storeAppName || '').trim().slice(0, 120),
-      directFileName: (editingApp.directFileName.trim() || 'CubeTV_Installer.apk').slice(
-        0,
-        200
-      ),
+      directFileName: (editingApp.directFileName.trim() || 'CubeTV.apk').slice(0, 200),
       fileDownloadUrl: editingApp.fileDownloadUrl || '',
       resolutionSupport: (editingApp.resolutionSupport.trim() || '4K UHD').slice(
         0,
@@ -436,47 +343,71 @@ export default function AdminDashboard({
       isPublic: Boolean(editingApp.isPublic),
     };
 
-    try {
-      await setDoc(doc(db, 'cubeApps', docId), {
-        ...payloadBase,
-        authorUid: ADMIN_USERNAME,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+    const exists = cubeApps.some((a) => a.id === docId);
+    const nextApps = exists
+      ? cubeApps.map((a) => (a.id === docId ? savedApp : a))
+      : [...cubeApps, savedApp];
+
+    const allStoreData: StoreConfigData = {
+      cubeApps: nextApps,
+      cubePlans,
+      satellitePlans,
+      gamePackages,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const res = await upsertStoreConfigToSupabase(allStoreData);
+    setIsBusy(false);
+
+    if (res.ok && res.data) {
+      onStoreDataUpdated(res.data);
       showMessage(
         'success',
-        `تم حفظ تطبيق "${editingApp.title}" ورابط التحميل المباشر والشروحات في Firestore بنجاح!`
+        `تم حفظ تعديلات تطبيق "${savedApp.title}" (كود Downloader: ${
+          savedApp.downloaderCode || 'بدون'
+        }) في جدول ${STORE_CONFIG_TABLE} على Supabase بنجاح!`
       );
       setEditingApp(null);
       setUploadSuccessMessage(null);
       setUploadErrorMessage(null);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `cubeApps/${docId}`);
-    } finally {
-      setIsBusy(false);
+    } else {
+      const errMsg =
+        res.errorMessage || 'حدث خطأ أثناء حفظ التعديلات في جدول store_config على Supabase.';
+      setUploadErrorMessage(errMsg);
+      showMessage('error', errMsg);
     }
   };
 
   const handleDeleteApp = async (appId: string, title: string) => {
     if (!isAdminLoggedIn) return;
     setIsBusy(true);
-    try {
-      await deleteDoc(doc(db, 'cubeApps', appId));
-      showMessage('success', `تم حذف تطبيق "${title}"`);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `cubeApps/${appId}`);
-    } finally {
-      setIsBusy(false);
+    const nextApps = cubeApps.filter((a) => a.id !== appId);
+    const allStoreData: StoreConfigData = {
+      cubeApps: nextApps,
+      cubePlans,
+      satellitePlans,
+      gamePackages,
+      updatedAt: new Date().toISOString(),
+    };
+    const res = await upsertStoreConfigToSupabase(allStoreData);
+    setIsBusy(false);
+
+    if (res.ok && res.data) {
+      onStoreDataUpdated(res.data);
+      showMessage('success', `تم حذف تطبيق "${title}" وتحديث جدول store_config في Supabase.`);
+    } else {
+      showMessage('error', res.errorMessage || 'تعذر حذف التطبيق في Supabase.');
     }
   };
 
-  // Save Cube Subscription Plan
+  // Save Cube Subscription Plan via upsert in Supabase `store_config`
   const handleSavePlan = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdminLoggedIn || !editingPlan) return;
     setIsBusy(true);
     const docId = sanitizeId(editingPlan.id);
-    const payloadBase = {
+    const savedPlan: CubeSubscriptionPlan = {
+      id: docId,
       name: editingPlan.name.trim().slice(0, 160),
       duration: editingPlan.duration.trim().slice(0, 80),
       price: Math.max(0, Math.min(10000, Number(editingPlan.price) || 0)),
@@ -489,42 +420,64 @@ export default function AdminDashboard({
       isPublic: Boolean(editingPlan.isPublic),
     };
 
-    try {
-      await setDoc(doc(db, 'cubePlans', docId), {
-        ...payloadBase,
-        authorUid: ADMIN_USERNAME,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      showMessage('success', `تم حفظ باقة الاشتراك "${editingPlan.name}" بنجاح!`);
+    const exists = cubePlans.some((p) => p.id === docId);
+    const nextPlans = exists
+      ? cubePlans.map((p) => (p.id === docId ? savedPlan : p))
+      : [...cubePlans, savedPlan];
+
+    const allStoreData: StoreConfigData = {
+      cubeApps,
+      cubePlans: nextPlans,
+      satellitePlans,
+      gamePackages,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const res = await upsertStoreConfigToSupabase(allStoreData);
+    setIsBusy(false);
+
+    if (res.ok && res.data) {
+      onStoreDataUpdated(res.data);
+      showMessage(
+        'success',
+        `تم حفظ باقة الاشتراك "${savedPlan.name}" في جدول ${STORE_CONFIG_TABLE} على Supabase بنجاح!`
+      );
       setEditingPlan(null);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `cubePlans/${docId}`);
-    } finally {
-      setIsBusy(false);
+    } else {
+      showMessage('error', res.errorMessage || 'تعذر حفظ باقة الاشتراك في Supabase.');
     }
   };
 
   const handleDeletePlan = async (planId: string) => {
     if (!isAdminLoggedIn) return;
     setIsBusy(true);
-    try {
-      await deleteDoc(doc(db, 'cubePlans', planId));
-      showMessage('success', 'تم حذف باقة الاشتراك');
-    } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `cubePlans/${planId}`);
-    } finally {
-      setIsBusy(false);
+    const nextPlans = cubePlans.filter((p) => p.id !== planId);
+    const allStoreData: StoreConfigData = {
+      cubeApps,
+      cubePlans: nextPlans,
+      satellitePlans,
+      gamePackages,
+      updatedAt: new Date().toISOString(),
+    };
+    const res = await upsertStoreConfigToSupabase(allStoreData);
+    setIsBusy(false);
+
+    if (res.ok && res.data) {
+      onStoreDataUpdated(res.data);
+      showMessage('success', 'تم حذف باقة الاشتراك وتحديث جدول store_config في Supabase.');
+    } else {
+      showMessage('error', res.errorMessage || 'تعذر حذف الباقة في Supabase.');
     }
   };
 
-  // Save Satellite Internet Plan
+  // Save Satellite Internet Plan via upsert in Supabase `store_config`
   const handleSaveSatellite = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdminLoggedIn || !editingSat) return;
     setIsBusy(true);
     const docId = sanitizeId(editingSat.id);
-    const payloadBase = {
+    const savedSat: SatellitePlan = {
+      id: docId,
       name: editingSat.name.trim().slice(0, 160),
       tier: editingSat.tier.trim().slice(0, 120),
       downloadSpeed: editingSat.downloadSpeed.trim().slice(0, 60),
@@ -546,42 +499,67 @@ export default function AdminDashboard({
       isPublic: Boolean(editingSat.isPublic),
     };
 
-    try {
-      await setDoc(doc(db, 'satellitePlans', docId), {
-        ...payloadBase,
-        authorUid: ADMIN_USERNAME,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      showMessage('success', `تم حفظ باقة الإنترنت الفضائي "${editingSat.name}" بنجاح!`);
+    const exists = satellitePlans.some((s) => s.id === docId);
+    const nextSat = exists
+      ? satellitePlans.map((s) => (s.id === docId ? savedSat : s))
+      : [...satellitePlans, savedSat];
+
+    const allStoreData: StoreConfigData = {
+      cubeApps,
+      cubePlans,
+      satellitePlans: nextSat,
+      gamePackages,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const res = await upsertStoreConfigToSupabase(allStoreData);
+    setIsBusy(false);
+
+    if (res.ok && res.data) {
+      onStoreDataUpdated(res.data);
+      showMessage(
+        'success',
+        `تم حفظ باقة الإنترنت الفضائي "${savedSat.name}" في جدول ${STORE_CONFIG_TABLE} على Supabase بنجاح!`
+      );
       setEditingSat(null);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `satellitePlans/${docId}`);
-    } finally {
-      setIsBusy(false);
+    } else {
+      showMessage(
+        'error',
+        res.errorMessage || 'تعذر حفظ باقة الإنترنت الفضائي في Supabase.'
+      );
     }
   };
 
   const handleDeleteSatellite = async (satId: string) => {
     if (!isAdminLoggedIn) return;
     setIsBusy(true);
-    try {
-      await deleteDoc(doc(db, 'satellitePlans', satId));
-      showMessage('success', 'تم حذف باقة الإنترنت الفضائي');
-    } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `satellitePlans/${satId}`);
-    } finally {
-      setIsBusy(false);
+    const nextSat = satellitePlans.filter((s) => s.id !== satId);
+    const allStoreData: StoreConfigData = {
+      cubeApps,
+      cubePlans,
+      satellitePlans: nextSat,
+      gamePackages,
+      updatedAt: new Date().toISOString(),
+    };
+    const res = await upsertStoreConfigToSupabase(allStoreData);
+    setIsBusy(false);
+
+    if (res.ok && res.data) {
+      onStoreDataUpdated(res.data);
+      showMessage('success', 'تم حذف باقة الإنترنت الفضائي وتحديث Supabase.');
+    } else {
+      showMessage('error', res.errorMessage || 'تعذر حذف الباقة في Supabase.');
     }
   };
 
-  // Save Game Top-up Package
+  // Save Game Top-up Package via upsert in Supabase `store_config`
   const handleSaveGame = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdminLoggedIn || !editingGame) return;
     setIsBusy(true);
     const docId = sanitizeId(editingGame.id);
-    const payloadBase = {
+    const savedGame: GameTopupPackage = {
+      id: docId,
       gameId: editingGame.gameId,
       gameName: editingGame.gameName.trim().slice(0, 120),
       amountLabel: editingGame.amountLabel.trim().slice(0, 160),
@@ -593,32 +571,53 @@ export default function AdminDashboard({
       isPublic: Boolean(editingGame.isPublic),
     };
 
-    try {
-      await setDoc(doc(db, 'gamePackages', docId), {
-        ...payloadBase,
-        authorUid: ADMIN_USERNAME,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      showMessage('success', `تم حفظ باقة شحن "${editingGame.amountLabel}" بنجاح!`);
+    const exists = gamePackages.some((g) => g.id === docId);
+    const nextGames = exists
+      ? gamePackages.map((g) => (g.id === docId ? savedGame : g))
+      : [...gamePackages, savedGame];
+
+    const allStoreData: StoreConfigData = {
+      cubeApps,
+      cubePlans,
+      satellitePlans,
+      gamePackages: nextGames,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const res = await upsertStoreConfigToSupabase(allStoreData);
+    setIsBusy(false);
+
+    if (res.ok && res.data) {
+      onStoreDataUpdated(res.data);
+      showMessage(
+        'success',
+        `تم حفظ باقة شحن "${savedGame.amountLabel}" في جدول ${STORE_CONFIG_TABLE} على Supabase بنجاح!`
+      );
       setEditingGame(null);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `gamePackages/${docId}`);
-    } finally {
-      setIsBusy(false);
+    } else {
+      showMessage('error', res.errorMessage || 'تعذر حفظ باقة الشحن في Supabase.');
     }
   };
 
   const handleDeleteGame = async (pkgId: string) => {
     if (!isAdminLoggedIn) return;
     setIsBusy(true);
-    try {
-      await deleteDoc(doc(db, 'gamePackages', pkgId));
-      showMessage('success', 'تم حذف باقة شحن اللعبة');
-    } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `gamePackages/${pkgId}`);
-    } finally {
-      setIsBusy(false);
+    const nextGames = gamePackages.filter((g) => g.id !== pkgId);
+    const allStoreData: StoreConfigData = {
+      cubeApps,
+      cubePlans,
+      satellitePlans,
+      gamePackages: nextGames,
+      updatedAt: new Date().toISOString(),
+    };
+    const res = await upsertStoreConfigToSupabase(allStoreData);
+    setIsBusy(false);
+
+    if (res.ok && res.data) {
+      onStoreDataUpdated(res.data);
+      showMessage('success', 'تم حذف باقة شحن اللعبة وتحديث Supabase.');
+    } else {
+      showMessage('error', res.errorMessage || 'تعذر حذف باقة الشحن في Supabase.');
     }
   };
 
@@ -631,34 +630,34 @@ export default function AdminDashboard({
     <div className="min-h-screen bg-[#0B0C0E] text-[#F3F4F6] flex flex-col">
       {/* Top Bar Contract for Admin Workspace */}
       <header className="sticky top-0 z-40 bg-[#0B0C0E]/95 backdrop-blur-md border-b border-white/[0.08]">
-        <div className="max-w-[1380px] mx-auto flex items-center justify-between gap-8 px-6 py-4">
-          <div className="flex items-center gap-3 text-sm text-zinc-400 whitespace-nowrap shrink-0">
-            <span className="font-bold text-white font-display text-base">
+        <div className="max-w-[1380px] mx-auto flex flex-wrap items-center justify-between gap-3 sm:gap-8 px-4 sm:px-6 py-3.5 sm:py-4">
+          <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-zinc-400 min-w-0">
+            <span className="font-bold text-white font-display text-sm sm:text-base whitespace-nowrap">
               صالة فاير
             </span>
             <span aria-hidden="true">/</span>
-            <span className="text-amber-400 font-medium">
-              لوحة الإدارة الشاملة ورفع ملفات APK المباشرة (fire-ip-store)
+            <span className="text-amber-400 font-medium truncate">
+              لوحة الإدارة الشاملة (Supabase: {STORE_CONFIG_TABLE})
             </span>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {isAdminLoggedIn && (
               <button
                 type="button"
-                onClick={handleSeedDefaultCatalog}
+                onClick={handleSyncToSupabaseCloud}
                 disabled={isBusy}
-                className="px-3.5 py-2 text-xs font-medium text-zinc-200 hover:text-white bg-[#161920] hover:bg-[#1E222B] border border-white/[0.08] rounded-lg transition-colors whitespace-nowrap shrink-0 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                className="px-3 sm:px-3.5 py-2 text-xs font-medium text-zinc-200 hover:text-white bg-[#161920] hover:bg-[#1E222B] border border-white/[0.08] rounded-lg transition-colors whitespace-nowrap shrink-0 flex items-center gap-2 cursor-pointer disabled:opacity-50"
               >
-                <Database className="w-3.5 h-3.5 text-amber-400" />
-                <span>مزامنة البيانات الافتراضية للسحابة</span>
+                <Database className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span>مزامنة البيانات للسحابة</span>
               </button>
             )}
 
             <button
               type="button"
               onClick={onCloseAdmin}
-              className="px-4 py-2 text-xs font-semibold text-zinc-950 bg-amber-500 hover:bg-amber-400 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="px-3.5 sm:px-4 py-2 text-xs font-semibold text-zinc-950 bg-amber-500 hover:bg-amber-400 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               العودة لواجهة المتجر
             </button>
@@ -666,21 +665,28 @@ export default function AdminDashboard({
         </div>
       </header>
 
-      {/* Status Notification Banner */}
+      {/* Status Notification Banner (Clear Green Confirmation or Red Error) */}
       {statusBanner && (
-        <div className="max-w-[1380px] w-full mx-auto px-6 pt-4">
+        <div className="max-w-[1380px] w-full mx-auto px-4 sm:px-6 pt-4">
           <div
-            className={`p-3.5 rounded-xl border text-xs font-medium flex items-center justify-between ${
+            className={`p-4 rounded-xl border text-xs sm:text-sm font-medium flex items-start justify-between gap-3 shadow-lg ${
               statusBanner.type === 'success'
-                ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
-                : 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+                ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-200'
+                : 'bg-rose-950/60 border-rose-500/60 text-rose-200'
             }`}
           >
-            <span>{statusBanner.message}</span>
+            <div className="flex items-start gap-2.5">
+              {statusBanner.type === 'success' ? (
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+              )}
+              <span className="leading-relaxed">{statusBanner.message}</span>
+            </div>
             <button
               type="button"
               onClick={() => setStatusBanner(null)}
-              className="text-zinc-400 hover:text-white cursor-pointer"
+              className="text-zinc-400 hover:text-white cursor-pointer shrink-0"
             >
               <X className="w-4 h-4" />
             </button>
@@ -690,10 +696,10 @@ export default function AdminDashboard({
 
       {/* Direct Username / Password Login Gate */}
       {!isAdminLoggedIn ? (
-        <div className="flex-1 flex items-center justify-center p-6">
+        <div className="flex-1 flex items-center justify-center p-4 sm:p-6">
           <form
             onSubmit={handleDirectLogin}
-            className="w-full max-w-md p-8 rounded-2xl bg-[#14171D] border border-white/[0.08] space-y-6"
+            className="w-full max-w-md p-6 sm:p-8 rounded-2xl bg-[#14171D] border border-white/[0.08] space-y-6"
           >
             <div className="text-center space-y-2">
               <div className="w-12 h-12 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400">
@@ -703,7 +709,7 @@ export default function AdminDashboard({
                 دخول مدير صالة فاير
               </h1>
               <p className="text-xs text-zinc-400 leading-relaxed">
-                أدخل اسم المستخدم وكلمة المرور الخاصة بك لرفع ملفات APK الحقيقية إلى Firebase Storage وإضافة الشروحات الكاملة.
+                أدخل اسم المستخدم وكلمة المرور الخاصة بك لرفع ملفات APK الحقيقية إلى Supabase Storage وحفظ التعديلات في جدول {STORE_CONFIG_TABLE}.
               </p>
             </div>
 
@@ -767,7 +773,7 @@ export default function AdminDashboard({
         </div>
       ) : (
         /* Main Admin Workspace Layout (Sidebar + Content Area) */
-        <div className="max-w-[1380px] w-full mx-auto px-6 py-8 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        <div className="max-w-[1380px] w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8 items-start">
           {/* Sidebar Navigation (3 Columns on Desktop) */}
           <aside className="lg:col-span-3 p-5 rounded-xl bg-[#14171D] border border-white/[0.08] space-y-6">
             <div className="space-y-1 pb-4 border-b border-white/[0.08]">
@@ -775,8 +781,8 @@ export default function AdminDashboard({
               <div className="text-sm font-mono-code font-bold text-white">
                 {ADMIN_USERNAME}
               </div>
-              <div className="text-xs text-zinc-500 font-mono-code pt-0.5">
-                Project: fire-ip-store
+              <div className="text-xs text-emerald-400 font-mono-code pt-0.5">
+                Supabase: {STORE_CONFIG_TABLE} ({STORE_CONFIG_ROW_ID})
               </div>
             </div>
 
@@ -846,7 +852,17 @@ export default function AdminDashboard({
               </button>
             </nav>
 
-            <div className="pt-4 border-t border-white/[0.08]">
+            <div className="pt-4 border-t border-white/[0.08] space-y-2">
+              <button
+                type="button"
+                onClick={handleSyncToSupabaseCloud}
+                disabled={isBusy}
+                className="w-full px-3.5 py-2.5 text-xs font-semibold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-lg flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <Database className="w-4 h-4" />
+                <span>مزامنة البيانات للسحابة</span>
+              </button>
+
               <button
                 type="button"
                 onClick={onAdminLogout}
@@ -861,17 +877,17 @@ export default function AdminDashboard({
           {/* Main Content Viewport (9 Columns on Desktop) */}
           <main className="lg:col-span-9 space-y-6">
             {/* ===============================================================
-                TAB 1: CUBE TV APPS + FIREBASE STORAGE APK UPLOAD + TUTORIALS
+                TAB 1: CUBE TV APPS + SUPABASE STORAGE APK UPLOAD + TUTORIALS
             ================================================================ */}
             {activeTab === 'apps' && (
               <div className="space-y-6">
-                <div className="p-6 rounded-xl bg-[#14171D] border border-white/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="p-5 sm:p-6 rounded-xl bg-[#14171D] border border-white/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="space-y-1">
-                    <h2 className="text-xl font-bold text-white font-display">
+                    <h2 className="text-lg sm:text-xl font-bold text-white font-display">
                       إدارة تطبيقات Cube TV ورفع ملفات الـ APK المباشرة إلى Supabase
                     </h2>
                     <p className="text-xs text-zinc-400">
-                      ارفع ملف الـ APK أو الـ EXE الحقيقي مباشرة إلى مخزن Supabase Storage (المجلد: files-ip) مع متابعة نسبة الرفع المئوية (%) وحفظ رابط التحميل العام (Public URL) في Firebase Firestore.
+                      ارفع ملف الـ APK أو الـ EXE الحقيقي مباشرة إلى مخزن Supabase Storage (المجلد: {SUPABASE_BUCKET}) مع حفظ جميع التعديلات وأكواد Downloader في جدول {STORE_CONFIG_TABLE} (id = '{STORE_CONFIG_ROW_ID}').
                     </p>
                   </div>
                   <button
@@ -931,7 +947,7 @@ export default function AdminDashboard({
                 {editingApp && (
                   <form
                     onSubmit={handleSaveApp}
-                    className="p-6 rounded-xl bg-[#161922] border border-amber-500/50 space-y-6"
+                    className="p-5 sm:p-6 rounded-xl bg-[#161922] border border-amber-500/50 space-y-6"
                   >
                     <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
                       <div className="space-y-0.5">
@@ -963,7 +979,7 @@ export default function AdminDashboard({
                           <div className="text-sm font-bold text-amber-400 flex items-center gap-2">
                             <Upload className="w-4 h-4" />
                             <span>
-                              رفع ملف الـ APK / البرنامج الحقيقي إلى Supabase Storage (المجلد: files-ip)
+                              رفع ملف الـ APK / البرنامج الحقيقي إلى Supabase Storage (المجلد: {SUPABASE_BUCKET})
                             </span>
                           </div>
                           <p className="text-xs text-zinc-400">
@@ -971,7 +987,7 @@ export default function AdminDashboard({
                             <span className="font-mono-code text-zinc-200">
                               Supabase Storage ({SUPABASE_BUCKET})
                             </span>{' '}
-                            وحفظ رابط التحميل العام (Public URL) في Firebase Firestore.
+                            وحفظ الرابط الكامل في جدول {STORE_CONFIG_TABLE} على Supabase.
                           </p>
                         </div>
 
@@ -1052,7 +1068,7 @@ export default function AdminDashboard({
                         </div>
                       )}
 
-                      {/* ERROR MESSAGE IF STORAGE UPLOAD FAILS */}
+                      {/* ERROR MESSAGE IF STORAGE OR UPSERT FAILS */}
                       {uploadErrorMessage && !isUploadingFile && (
                         <div className="p-4 rounded-xl bg-rose-950/50 border border-rose-500/50 flex items-start gap-3">
                           <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
@@ -1078,14 +1094,14 @@ export default function AdminDashboard({
                                 directFileName: e.target.value,
                               })
                             }
-                            placeholder="CubeTV_AndroidTV_v4.8.2.apk"
+                            placeholder="CubeTV.apk"
                             className="w-full px-3 py-2 text-xs font-mono-code bg-[#14171D] border border-white/[0.1] rounded-lg text-white"
                           />
                         </div>
 
                         <div className="space-y-1.5">
                           <label className="block text-xs text-zinc-300">
-                            رابط التحميل العام (Public URL) في Supabase Storage (files-ip)
+                            رابط التحميل العام الكامل (Public URL) في Supabase Storage ({SUPABASE_BUCKET})
                           </label>
                           <input
                             type="text"
@@ -1097,7 +1113,7 @@ export default function AdminDashboard({
                                 fileDownloadUrl: e.target.value,
                               })
                             }
-                            placeholder="يتم تعبئته تلقائياً فور اكتمال رفع ملف الـ APK إلى Supabase..."
+                            placeholder="https://yjgisbdaqfvqywfjkafq.supabase.co/storage/v1/object/public/files-ip/..."
                             className="w-full px-3 py-2 text-xs font-mono-code bg-[#14171D] border border-white/[0.1] rounded-lg text-emerald-400"
                           />
                         </div>
@@ -1226,7 +1242,7 @@ export default function AdminDashboard({
                           onChange={(e) =>
                             setEditingApp({ ...editingApp, downloaderCode: e.target.value })
                           }
-                          placeholder="مثال: 749281"
+                          placeholder="مثال: 6495278"
                           className="w-full px-3 py-2 text-xs font-mono-code bg-[#0B0C0E] border border-white/[0.1] rounded-lg text-amber-400"
                         />
                       </div>
@@ -1453,7 +1469,7 @@ export default function AdminDashboard({
                     </div>
 
                     {/* Save / Cancel Bar */}
-                    <div className="flex items-center justify-between pt-2">
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
                       <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
                         <input
                           type="checkbox"
@@ -1483,7 +1499,7 @@ export default function AdminDashboard({
                           className="px-6 py-2.5 text-xs font-semibold text-zinc-950 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 rounded-lg flex items-center gap-2 cursor-pointer"
                         >
                           <Save className="w-4 h-4" />
-                          <span>حفظ التطبيق والرابط في Firestore</span>
+                          <span>حفظ التعديلات في Supabase</span>
                         </button>
                       </div>
                     </div>
@@ -1498,7 +1514,7 @@ export default function AdminDashboard({
                       className="p-5 rounded-xl bg-[#14171D] border border-white/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                     >
                       <div className="space-y-1.5">
-                        <div className="flex items-center gap-2 text-xs text-zinc-400 tabular-nums">
+                        <div className="flex items-center gap-2 flex-wrap text-xs text-zinc-400 tabular-nums">
                           <span className="text-amber-400 font-medium">
                             {app.categoryLabel}
                           </span>
@@ -1751,7 +1767,7 @@ export default function AdminDashboard({
                           disabled={isBusy}
                           className="px-5 py-2 text-xs font-semibold text-zinc-950 bg-amber-500 rounded-lg cursor-pointer"
                         >
-                          حفظ الباقة
+                          حفظ التعديلات
                         </button>
                       </div>
                     </div>
@@ -1998,7 +2014,7 @@ export default function AdminDashboard({
                         disabled={isBusy}
                         className="px-5 py-2 text-xs font-semibold text-zinc-950 bg-amber-500 rounded-lg cursor-pointer"
                       >
-                        حفظ الباقة والشرح
+                        حفظ التعديلات
                       </button>
                     </div>
                   </form>
@@ -2166,17 +2182,22 @@ export default function AdminDashboard({
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1">
-                        <label className="text-xs text-zinc-300">البونص / الإضافات</label>
+                        <label className="text-xs text-zinc-300">البونص الإضافي</label>
                         <input
                           type="text"
                           required
                           value={editingGame.bonusLabel}
                           onChange={(e) =>
-                            setEditingGame({ ...editingGame, bonusLabel: e.target.value })
+                            setEditingGame({
+                              ...editingGame,
+                              bonusLabel: e.target.value,
+                            })
                           }
+                          placeholder="+ 7,500 توكن إضافي"
                           className="w-full px-3 py-2 text-xs bg-[#0B0C0E] border border-white/[0.1] rounded-lg text-white"
                         />
                       </div>
+
                       <div className="space-y-1">
                         <label className="text-xs text-zinc-300">طريقة التسليم</label>
                         <input
@@ -2189,6 +2210,7 @@ export default function AdminDashboard({
                               deliveryType: e.target.value,
                             })
                           }
+                          placeholder="شحن مباشر عبر الـ ID"
                           className="w-full px-3 py-2 text-xs bg-[#0B0C0E] border border-white/[0.1] rounded-lg text-white"
                         />
                       </div>
@@ -2196,7 +2218,7 @@ export default function AdminDashboard({
 
                     <div className="space-y-1">
                       <label className="text-xs text-zinc-300">
-                        شرح وتعليمات الشحن لهذه الباقة
+                        شرح وتعليمات الشحن للعميل
                       </label>
                       <textarea
                         rows={2}
@@ -2207,7 +2229,7 @@ export default function AdminDashboard({
                             topupInstructions: e.target.value,
                           })
                         }
-                        placeholder="مثال: افتح تطبيق جواكر وانسخ المعرف..."
+                        placeholder="مثال: افتح تطبيق جواكر -> الملف الشخصي -> انسخ رقم المعرف..."
                         className="w-full px-3 py-2 text-xs bg-[#0B0C0E] border border-white/[0.1] rounded-lg text-white"
                       />
                     </div>
@@ -2218,11 +2240,14 @@ export default function AdminDashboard({
                           type="checkbox"
                           checked={editingGame.popular}
                           onChange={(e) =>
-                            setEditingGame({ ...editingGame, popular: e.target.checked })
+                            setEditingGame({
+                              ...editingGame,
+                              popular: e.target.checked,
+                            })
                           }
                           className="accent-amber-500"
                         />
-                        <span>تمييز كباقة "الأكثر مبيعاً"</span>
+                        <span>تمييز كباقة شائعة</span>
                       </label>
                       <div className="flex items-center gap-2">
                         <button
@@ -2237,25 +2262,25 @@ export default function AdminDashboard({
                           disabled={isBusy}
                           className="px-5 py-2 text-xs font-semibold text-zinc-950 bg-amber-500 rounded-lg cursor-pointer"
                         >
-                          حفظ باقة الشحن
+                          حفظ التعديلات
                         </button>
                       </div>
                     </div>
                   </form>
                 )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   {gamePackages.map((pkg) => (
                     <div
                       key={pkg.id}
                       className="p-4 rounded-xl bg-[#14171D] border border-white/[0.08] flex items-center justify-between gap-4"
                     >
-                      <div className="space-y-1">
+                      <div className="space-y-0.5">
                         <div className="text-xs text-amber-400">{pkg.gameName}</div>
                         <div className="text-sm font-bold text-white">
                           {pkg.amountLabel}
                         </div>
-                        <div className="text-xs text-zinc-400 tabular-nums">
+                        <div className="text-xs text-zinc-400">
                           {pkg.price.toFixed(2)} د.أ · {pkg.bonusLabel}
                         </div>
                       </div>
